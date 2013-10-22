@@ -48,35 +48,29 @@ import org.kiji.annotations.Inheritance
 @ApiAudience.Public
 @ApiStability.Experimental
 @Inheritance.Extensible
-class KijiJob(args: Args = Args(Nil)) extends Job(args) with PipeConversions {
+class KijiJob(args: Args = Args(Nil))
+  extends Job(args)
+  with PipeConversions {
   override def validateSources(mode: Mode): Unit = {
     val taps: List[Tap[_, _, _]] =
         flowDef.getSources.values.asScala.toList ++
         flowDef.getSinks.values.asScala.toList
 
-    // Retrieve the configuration
-    var conf: Configuration = HBaseConfiguration.create()
-    implicitly[Mode] match {
-      case Hdfs(_, configuration) => {
-        conf = configuration
-      }
-      case HadoopTest(configuration, _) => {
-        conf = configuration
-      }
-      case _ =>
+    val conf: Configuration = mode match {
+      case Hdfs(_, configuration) => configuration
+      case HadoopTest(configuration, _) => configuration
+      case _ => HBaseConfiguration.create()
     }
 
     // Validate that the Kiji parts of the sources (tables, columns) are valid and exist.
-    taps.foreach { tap =>
-      tap match {
-        case kijiTap: KijiTap => kijiTap.validate(new JobConf(conf))
-        case localKijiTap: LocalKijiTap => {
-          val properties: Properties = new Properties()
-          properties.putAll(HadoopUtil.createProperties(conf))
-          localKijiTap.validate(properties)
-        }
-        case _ => // No Kiji parts to verify.
+    taps.foreach {
+      case kijiTap: KijiTap => kijiTap.validate(new JobConf(conf))
+      case localKijiTap: LocalKijiTap => {
+        val properties = new Properties()
+        properties.putAll(HadoopUtil.createProperties(conf))
+        localKijiTap.validate(properties)
       }
+      case _ => // No Kiji parts to verify.
     }
 
     // Call any validation that scalding's Job class does.

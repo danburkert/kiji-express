@@ -29,24 +29,31 @@ import org.kiji.express._
 import org.kiji.express.repl.Implicits._
 import org.kiji.express.util.Resources._
 import org.kiji.schema.KijiTable
-import org.kiji.schema.avro.HashSpec
-import org.kiji.schema.avro.HashType
 import org.kiji.schema.layout.KijiTableLayout
 import org.kiji.schema.layout.KijiTableLayouts
+import org.kiji.express.avro.SimpleRecord
+import cascading.tuple.Fields
+import org.apache.avro.generic.{GenericRecordBuilder, GenericRecord}
+import org.apache.avro.specific.SpecificRecord
+import org.kiji.express.util.AvroTupleConversions
 
+/**
+ * This class is for testing KijiPipe in a REPL-like environment.
+ */
 @RunWith(classOf[JUnitRunner])
-class KijiPipeSuite extends KijiSuite {
+class KijiPipeSuite
+  extends KijiSuite
+  with AvroTupleConversions {
   /** Table layout to use for tests. */
+  @transient
   val layout: KijiTableLayout = layout(KijiTableLayouts.SIMPLE_TWO_COLUMNS)
 
   /** Input tuples to use for word count tests. */
-  def wordCountInput(uri: String): List[(EntityId, KijiSlice[String])] = {
-    List(
-      ( EntityId("row01"), slice("family:column1", (1L, "hello")) ),
-      ( EntityId("row02"), slice("family:column1", (2L, "hello")) ),
-      ( EntityId("row03"), slice("family:column1", (1L, "world")) ),
-      ( EntityId("row04"), slice("family:column1", (3L, "hello")) ))
-  }
+  val wordCountInput: List[(EntityId, KijiSlice[String])] = List(
+    ( EntityId("row01"), slice("family:column1", (1L, "hello")) ),
+    ( EntityId("row02"), slice("family:column1", (2L, "hello")) ),
+    ( EntityId("row03"), slice("family:column1", (1L, "world")) ),
+    ( EntityId("row04"), slice("family:column1", (3L, "hello")) ))
 
   /**
    * Validates output from the word count tests.
@@ -88,129 +95,145 @@ class KijiPipeSuite extends KijiSuite {
   }
 
   /** The job tester we'll use to run the test job in either local or hadoop mode. */
-  val jobTest = JobTest(jobToRun(_))
-      .source(KijiInput(uri, "family:column1" -> 'word), wordCountInput(uri))
-      .sink(Tsv("outputFile"))(validateWordCount)
+  @transient
+  val myJobTest = JobTest(jobToRun _)
+    .source(KijiInput(uri, "family:column1" -> 'word), wordCountInput)
+    .sink(Tsv("outputFile"))(validateWordCount)
 
   test("A KijiPipe can be used to obtain a Scalding job that is run in local mode.") {
-    jobTest.run.finish
+    myJobTest.run.finish
   }
 
   test("A KijiPipe can be used to obtain a Scalding job that is run with Hadoop.") {
+    myJobTest.runHadoop.finish
+  }
+
+  test("Kiji Avro tuple converters should be in implicit scope.") {
+    assert(implicitly[TupleUnpacker[GenericRecord]].getClass ===
+      classOf[AvroGenericTupleUnpacker])
+    assert(implicitly[TuplePacker[SpecificRecord]].getClass ===
+      classOf[AvroSpecificTuplePacker[SpecificRecord]])
+    assert(implicitly[TuplePacker[SimpleRecord]].getClass ===
+      classOf[AvroSpecificTuplePacker[SimpleRecord]])
+  }
+
+  val simpleSchema = SimpleRecord.getClassSchema
+
+  val simpleInput: List[(Long, String)] = List(
+    (1, "foobar"),
+    (2, "shoe"),
+    (3, "random"),
+    (99, "baloons"),
+    (356, "sumerians"))
+
+  val simpleSpecificRecords: List[SimpleRecord] = simpleInput.map { t =>
+    SimpleRecord.newBuilder.setL(t._1).setS(t._2).build()
+  }
+
+  val simpleGenericRecords: List[GenericRecord] = simpleInput.map { t =>
+    new GenericRecordBuilder(simpleSchema).set("l", t._1).set("s", t._2).build()
+  }
+
+  def validateSpecificSimpleRecord(outputs: Buffer[(Long, String, String, SimpleRecord)]) {
+    outputs.foreach { t =>
+      val (l, s, o, r) = t
+      assert(simpleSpecificRecords.contains(r))
+      assert(r.getL === l)
+      assert(r.getS === s)
+      assert(r.getO === o)
+    }
+  }
+
+  def validateGenericSimpleRecord(outputs: Buffer[(Long, String, String, GenericRecord)]) {
+    outputs.foreach { t =>
+      val (l, s, o, r) = t
+      assert(simpleGenericRecords.contains(r))
+      assert(r.get("l") === l)
+      assert(r.get("s") === s)
+      assert(r.get("o") === o)
+    }
+  }
+
+  test("A KijiPipe can pack fields into a specific Avro record.") {
+    def packSpecificRecordJob(args: Args): Job = {
+      Tsv(args("input"), new Fields("ls", "s"))
+        .map('ls -> 'l) { ls: String => ls.toLong }
+        .pack[SimpleRecord](('l, 's) -> 'r)
+        .map('r -> 'o) { r: SimpleRecord => r.getO }
+        .project('l, 's, 'o, 'r)
+        .write(Tsv(args("output")))
+        .getJob(args)
+    }
+
+    val jobTest = JobTest(packSpecificRecordJob _)
+      .arg("input", "inputFile")
+      .arg("output", "outputFile")
+      .source(Tsv("inputFile", new Fields("ls", "s")), simpleInput)
+      .sink(Tsv("outputFile"))(validateSpecificSimpleRecord)
+
+    jobTest.run.finish
     jobTest.runHadoop.finish
   }
 
-  test("A KijiPipe can pack tuples into AvroRecords.") {
-    val packingInput: List[(String, String)] = List(
-        ( "0", "1 eid1 word1" ),
-        ( "1", "3 eid1 word2" ),
-        ( "2", "5 eid2 word3" ),
-        ( "3", "7 eid2 word4" ))
-
-    def validatePacking(outputBuffer: Buffer[(Int, String, Int, String)]) {
-      assert(AvroRecord("line" -> "1 eid1 word1", "length" -> 12).toString === outputBuffer(0)._4)
+  test("A KijiPipe can pack fields into a generic Avro record.") {
+    def packGenericRecordJob(args: Args): Job = {
+      Tsv(args("input"), new Fields("ls", "s"))
+        .read
+        .map('ls -> 'l) { ls: String => ls.toLong }
+        .packGenericRecord(('l, 's) -> 'r)(simpleSchema)
+        .map('r -> 'o) { r: GenericRecord => r.get("o") }
+        .project('l, 's, 'o, 'r)
+        .write(Tsv(args("output")))
+        .getJob(args)
     }
 
-    def packTupleJob(args: Args): Job = {
-      val cascadingPipe = TextLine(args("input")).read
-          .map ('line -> 'length) { line: String => line.length }
-      new KijiPipe(cascadingPipe)
-          .packAvro(('line, 'length) -> 'record)
-          .write(Tsv(args("output")))
-          .getJob(args)
-    }
+    val jobTest = JobTest(packGenericRecordJob _)
+      .arg("input", "inputFile")
+      .arg("output", "outputFile")
+      .source(Tsv("inputFile", new Fields("ls", "s")), simpleInput)
+      .sink(Tsv("outputFile"))(validateGenericSimpleRecord)
 
-    val jobTest = JobTest(packTupleJob(_))
-        .arg("input", "inputFile")
-        .arg("output", "outputFile")
-        .source(TextLine("inputFile"), packingInput)
-        .sink(Tsv("outputFile"))(validatePacking)
-
-    // Run in local mode.
     jobTest.run.finish
-    // Run in hadoop mode.
     jobTest.runHadoop.finish
   }
 
-  test("A KijiPipe can pack tuples into AvroRecords when the table layout has a 'CLASS' type.") {
-    val avroLayout: KijiTableLayout = layout("layout/avro-types.json")
-
-    val uri: String = doAndRelease(makeTestKijiTable(avroLayout)) { table: KijiTable =>
-      table.getURI().toString()
+  test("A KijiPipe can unpack a specific Avro record into fields.") {
+    def unpackSpecificRecordJob(args: Args): Job = {
+      Tsv(args("input"), new Fields("r"))
+        .read
+        .unpack[SimpleRecord]('r -> ('l, 's, 'o))
+        .project('l, 's, 'o, 'r)
+        .write(Tsv(args("output")))
+        .getJob(args)
     }
 
-    val packingInput: List[(String, String)] = List(( "0", "1 eid1 word1" ))
+    val jobTest = JobTest(unpackSpecificRecordJob _)
+      .arg("input", "inputFile")
+      .arg("output", "outputFile")
+      .source(Tsv("inputFile", new Fields("r")), simpleSpecificRecords)
+      .sink(Tsv("outputFile"))(validateSpecificSimpleRecord)
 
-    def validatePacking(outputBuffer: Buffer[(EntityId, KijiSlice[AvroRecord])]) {
-      // Get the first record from the first KijiSlice.
-      val outputRecord = outputBuffer(0)._2.getFirstValue
-      assert("1 eid1 word1" === outputRecord("line").asString)
-      assert(12 === outputRecord("length").asInt)
-    }
-
-    def packTupleJob(args: Args): Job = {
-      val cascadingPipe = TextLine(args("input")).read
-          .map ('line -> 'length) { line: String => line.length }
-          .map ('offset -> 'entityId) { offset: String => EntityId(offset) }
-      new KijiPipe(cascadingPipe)
-          .packAvro(('line, 'length) -> 'record)
-          .write(KijiOutput(args("output"), 'record -> "family:column5"))
-          .getJob(args)
-    }
-
-    val jobTest = JobTest(packTupleJob(_))
-        .arg("input", "inputFile")
-        .arg("output", uri)
-        .source(TextLine("inputFile"), packingInput)
-        .sink(KijiOutput(uri, 'record -> "family:column5"))(validatePacking)
-
-    // Run in local mode.
     jobTest.run.finish
-    // Run in hadoop mode.
     jobTest.runHadoop.finish
   }
 
-  test("A KijiPipe can unpack tuples from AvroRecords.") {
-    val avroLayout: KijiTableLayout = layout("layout/avro-types.json")
-
-    val uri: String = doAndRelease(makeTestKijiTable(avroLayout)) { table: KijiTable =>
-      table.getURI().toString()
+  test("A KijiPipe can unpack a generic Avro record into fields.") {
+    def unpackRecordJob(args: Args): Job = {
+      Tsv(args("input"), new Fields("r"))
+        .read
+        .unpack[GenericRecord]('r -> ('l, 's, 'o))
+        .project('l, 's, 'o, 'r)
+        .write(Tsv(args("output")))
+        .getJob(args)
     }
 
-    val specificRecord = new HashSpec()
-    specificRecord.setHashType(HashType.MD5)
-    specificRecord.setHashSize(13)
-    specificRecord.setSuppressKeyMaterialization(true)
+    val jobTest = JobTest(unpackRecordJob _)
+      .arg("input", "inputFile")
+      .arg("output", "outputFile")
+      .source(Tsv("inputFile", new Fields("r")), simpleGenericRecords)
+      .sink(Tsv("outputFile"))(validateGenericSimpleRecord)
 
-    def unpackingInput(uri: String): List[(EntityId, KijiSlice[HashSpec])] = {
-      List((EntityId("row01"), slice("family:column3", (10L, specificRecord))))
-    }
-
-    def validatePacking(outputBuffer: Buffer[(String, String, String)]) {
-      assert(AvroEnum("MD5").toString === outputBuffer(0)._1)
-      assert(AvroInt(13).toString === outputBuffer(0)._2)
-      assert(AvroBoolean(true).toString === outputBuffer(0)._3)
-    }
-
-    def unpackTupleJob(args: Args): Job = {
-      val cascadingPipe = KijiInput(args("input"), "family:column3" -> 'slice)
-          .map('slice -> 'record) { slice: KijiSlice[AvroRecord] => slice.getFirstValue }
-      new KijiPipe(cascadingPipe)
-          .unpackAvro('record -> ('hashtype, 'hashsize, 'suppress))
-          .project('hashtype, 'hashsize, 'suppress)
-          .write(Tsv(args("output")))
-          .getJob(args)
-    }
-
-    val jobTest = JobTest(unpackTupleJob(_))
-        .arg("input", uri)
-        .arg("output", "outputFile")
-        .source(KijiInput(uri, Map (Column("family:column3") -> 'slice)), unpackingInput(uri))
-        .sink(Tsv("outputFile"))(validatePacking)
-
-    // Run in local mode.
     jobTest.run.finish
-    // Run in hadoop mode.
     jobTest.runHadoop.finish
   }
 }
