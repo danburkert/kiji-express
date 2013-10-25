@@ -19,191 +19,76 @@
 
 package org.kiji.express.flow
 
-import scala.collection.mutable.Buffer
+import com.twitter.scalding.{TextLine, JobTest, Args, Tsv}
 
-import com.twitter.scalding.Args
-import com.twitter.scalding.JobTest
-import com.twitter.scalding.TextLine
-import com.twitter.scalding.Tsv
+import org.apache.avro.generic.{GenericRecordBuilder, GenericRecord}
 import org.junit.runner.RunWith
 import org.scalatest.junit.JUnitRunner
 
-import org.kiji.express.AvroBoolean
-import org.kiji.express.AvroEnum
-import org.kiji.express.AvroInt
-import org.kiji.express.AvroRecord
-import org.kiji.express.EntityId
-import org.kiji.express.KijiSlice
-import org.kiji.express.KijiSuite
-import org.kiji.express.util.Resources.doAndRelease
-import org.kiji.schema.KijiTable
-import org.kiji.schema.KijiURI
-import org.kiji.schema.avro.HashSpec
-import org.kiji.schema.avro.HashType
+import org.kiji.express.flow.FlowTestUtil._
+import org.kiji.express.util.Resources._
+import org.kiji.express.{EntityId, KijiSlice, KijiSuite}
+import org.kiji.schema.avro.{HashType, HashSpec}
 import org.kiji.schema.layout.KijiTableLayout
+import org.kiji.schema.{KijiColumnName, KijiTable}
+import scala.collection.mutable
+import org.apache.avro.Schema
+import cascading.tuple.Fields
 
+/**
+ * This class simulates running Express jobs as part of a [[org.kiji.express.flow.KijiJob]],
+ * therefore all tests are wrapped in a subclass of [[org.kiji.express.flow.KijiJob]].
+ */
 @RunWith(classOf[JUnitRunner])
 class KijiJobSuite extends KijiSuite {
+
   val avroLayout: KijiTableLayout = layout("layout/avro-types.json")
   val uri: String = doAndRelease(makeTestKijiTable(avroLayout)) { table: KijiTable =>
-    table.getURI().toString()
+    table.getURI.toString
   }
 
-  test("A KijiJob can run with a pipe that uses packAvro.") {
-    val packingInput: List[(String, String)] = List(
-        ( "0", "1 eid1 word1" ),
-        ( "1", "3 eid1 word2" ),
-        ( "2", "5 eid2 word3" ),
-        ( "3", "7 eid2 word4" ))
+  def validateBasicJob(outputBuffer: mutable.Buffer[String]) { /** Nothing to validate. */ }
 
-    def validatePacking(outputBuffer: Buffer[(Int, String, Int, String)]) {
-      assert(AvroRecord("line" -> "1 eid1 word1", "length" -> 12).toString === outputBuffer(0)._4)
-    }
+  /** module for holding inputs for running tests on the avro-type table. */
+  object inputs {
 
-    class PackTupleJob(args: Args) extends KijiJob(args) {
-      TextLine(args("input")).read
-          .map ('line -> 'length) { line: String => line.length }
-          .packAvro(('line, 'length) -> 'record)
-          .write(Tsv(args("output")))
-    }
+    val strings: List[String] = List(
+      "the quick brown fox jumped over the lazy dog.\n",
+      "semper ubi sub ubi !@#$%^&*()_+",
+      "Kiji Wiji Hiji Piji Miji",
+      "in a world lit only by fireflys,",
+      "words from the end of a techno song")
 
-    val jobTest = JobTest(new PackTupleJob(_))
-        .arg("input", "inputFile")
-        .arg("output", "outputFile")
-        .source(TextLine("inputFile"), packingInput)
-        .sink(Tsv("outputFile"))(validatePacking)
+    val column1: List[Array[Byte]] = strings.map(_.take(16)).map(_.getBytes("UTF8"))
+    val column2: List[Array[Byte]] = strings.map(_.getBytes("UTF8"))
 
-    // Run in local mode.
-    jobTest.run.finish
-    // Run in hadoop mode.
-    jobTest.runHadoop.finish
-  }
+    val column3Fields: List[(HashType, Int, Boolean)] =
+      (List.fill(5)(HashType.MD5), Range(0, 4), List(true, false, true, false, true)).zipped.toList
+    val column3Records: List[HashSpec] = column3Fields.map(t => new HashSpec(t._1, t._2, t._3))
 
-  test("A KijiJob can run with a pipe that uses unpackAvro.") {
-    val specificRecord = new HashSpec()
-    specificRecord.setHashType(HashType.MD5)
-    specificRecord.setHashSize(13)
-    specificRecord.setSuppressKeyMaterialization(true)
-
-    val unpackingInput: List[(EntityId, KijiSlice[HashSpec])] =
-      List((EntityId("row01"), slice("family:column3", (10L, specificRecord))))
-
-    def validatePacking(outputBuffer: Buffer[(String, String, String)]) {
-      assert(AvroEnum("MD5").toString === outputBuffer(0)._1)
-      assert(AvroInt(13).toString === outputBuffer(0)._2)
-      assert(AvroBoolean(true).toString === outputBuffer(0)._3)
-    }
-
-    class UnpackTupleJob(args: Args) extends KijiJob(args) {
-      KijiInput(args("input"), "family:column3" -> 'slice)
-          .map('slice -> 'record) { slice: KijiSlice[AvroRecord] => slice.getFirstValue }
-          .unpackAvro('record -> ('hashtype, 'hashsize, 'suppress))
-          .project('hashtype, 'hashsize, 'suppress)
-          .write(Tsv(args("output")))
-    }
-
-    val jobTest = JobTest(new UnpackTupleJob(_))
-        .arg("input", uri)
-        .arg("output", "outputFile")
-        .source(KijiInput(uri, Map (Column("family:column3") -> 'slice)), unpackingInput)
-        .sink(Tsv("outputFile"))(validatePacking)
-
-    // Run in local mode.
-    jobTest.run.finish
-    // Run in hadoop mode.
-    jobTest.runHadoop.finish
-  }
-
-  test("A KijiJob implicitly converts KijiSources to KijiPipes so you can call Kiji methods.") {
-    // This class won't actually run because slice will contain a KijiSlice which can't be
-    // unpacked.  This tests only tests that this compiles.  Eventually we may have methods
-    // on KijiPipe that we need to use directly after KijiInput (for example, we may decide to
-    // return only the first value in the slice if only 1 value is requested).
-    class UnpackTupleJob(args: Args) extends KijiJob(args) {
-      KijiInput(args("input"), "family:column3" -> 'slice)
-          .unpackAvro('slice -> ('hashtype, 'hashsize, 'suppress))
-          .project('hashtype, 'hashsize, 'suppress)
-          .write(Tsv(args("output")))
-    }
-  }
-
-  test("A KijiJob is not run if the Kiji instance in the output doesn't exist.") {
-    class BasicJob(args: Args) extends KijiJob(args) {
-      TextLine(args("input"))
-        .map ('line -> 'entityId) { line: String => EntityId(line) }
-        .write(KijiOutput(args("output"), 'line -> "family:column1"))
-    }
-
-    val nonexistentInstanceURI: String = KijiURI.newBuilder(uri)
-        .withInstanceName("nonexistent_instance")
+    val column4Schema: Schema =
+      avroLayout.getCellSpec(new KijiColumnName("family:column4")).getAvroSchema
+    val column4Records: List[GenericRecord] = strings.map { s: String =>
+      new GenericRecordBuilder(column4Schema)
+        .set("contained_string", s)
         .build()
-        .toString
-
-    val basicInput: List[(String, String)] = List[(String, String)]()
-
-    def validateBasicJob(outputBuffer: Buffer[String]) { /** Nothing to validate. */ }
-
-    val jobTest = JobTest(new BasicJob(_))
-        .arg("input", "inputFile")
-        .arg("output", nonexistentInstanceURI)
-        .source(TextLine("inputFile"), basicInput)
-        .sink(KijiOutput(nonexistentInstanceURI, 'line -> "family:column1"))(validateBasicJob)
-
-    val hadoopException = intercept[InvalidKijiTapException] { jobTest.runHadoop.finish }
-    val localException = intercept[InvalidKijiTapException] { jobTest.run.finish }
-
-    assert(localException.getMessage === hadoopException.getMessage)
-    assert(localException.getMessage.contains("nonexistent_instance"))
+    }
   }
 
-  test("A KijiJob is not run if the Kiji table in the output doesn't exist.") {
-    class BasicJob(args: Args) extends KijiJob(args) {
+  test("A KijiJob can write to a KijiTable String column.") {
+    class WriteWordsJob(args: Args) extends KijiJob(args) {
       TextLine(args("input"))
-        .write(KijiOutput(args("output"), 'line -> "family:column1"))
+        .map('line -> 'entityId) {w: String => EntityId(w)}
+        .write(KijiOutput(args("table-uri"), 'line -> "family:column1"))
     }
 
-    val nonexistentTableURI: String = KijiURI.newBuilder(uri)
-        .withTableName("nonexistent_table")
-        .build()
-        .toString
+    val jobTest = JobTest(new WriteWordsJob(_))
+      .arg("input", inputFile)
+      .arg("table-uri", uri)
+      .source(TextLine(inputFile), inputs.strings)
+      .sink(KijiOutput(uri, 'column1 -> "family:column1"))(validateBasicJob)
 
-    val basicInput: List[(String, String)] = List[(String, String)]()
-
-    def validateBasicJob(outputBuffer: Buffer[String]) { /** Nothing to validate. */ }
-
-    val jobTest = JobTest(new BasicJob(_))
-        .arg("input", "inputFile")
-        .arg("output", nonexistentTableURI)
-        .source(TextLine("inputFile"), basicInput)
-        .sink(KijiOutput(nonexistentTableURI, 'line -> "family:column1"))(validateBasicJob)
-
-    val localException = intercept[InvalidKijiTapException] { jobTest.run.finish }
-    val hadoopException = intercept[InvalidKijiTapException] { jobTest.runHadoop.finish }
-
-    assert(localException.getMessage === hadoopException.getMessage)
-    assert(localException.getMessage.contains("nonexistent_table"))
-  }
-
-  test("A KijiJob is not run if any of the columns don't exist.") {
-    class BasicJob(args: Args) extends KijiJob(args) {
-      TextLine(args("input"))
-        .write(KijiOutput(args("output"), 'line -> "family:nonexistent_column"))
-    }
-
-    val basicInput: List[(String, String)] = List[(String, String)]()
-
-    def validateBasicJob(outputBuffer: Buffer[String]) { /** Nothing to validate. */ }
-
-    val jobTest = JobTest(new BasicJob(_))
-        .arg("input", "inputFile")
-        .arg("output", uri)
-        .source(TextLine("inputFile"), basicInput)
-        .sink(KijiOutput(uri, 'line -> "family:nonexistent_column"))(validateBasicJob)
-
-    val localException = intercept[InvalidKijiTapException] { jobTest.run.finish }
-    val hadoopException = intercept[InvalidKijiTapException] { jobTest.runHadoop.finish }
-
-    assert(localException.getMessage === hadoopException.getMessage)
-    assert(localException.getMessage.contains("nonexistent_column"))
+    jobTest.run.finish
+    jobTest.runHadoop.finish
   }
 }
