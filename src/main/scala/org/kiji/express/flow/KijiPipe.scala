@@ -21,10 +21,9 @@ package org.kiji.express.flow
 
 import cascading.flow.Flow
 import cascading.pipe.Pipe
-import cascading.tuple.{Fields, Tuple}
+import cascading.tuple.Fields
 import com.twitter.scalding._
 
-import org.kiji.express.AvroRecord
 import org.kiji.express.repl.ExpressShell
 import org.kiji.express.repl.Implicits
 import org.kiji.express.repl.Implicits.pipeToRichPipe
@@ -33,7 +32,8 @@ import org.apache.avro.generic.GenericRecord
 import org.kiji.annotations.ApiAudience
 import org.kiji.annotations.ApiStability
 import org.kiji.annotations.Inheritance
-import org.kiji.express.util.AvroTupleConversions
+import org.kiji.express.util.{AvroGenericTupleConverter, AvroTupleConversions}
+import com.twitter.chill.MeatLocker
 
 /**
  * A class that adds Kiji-specific functionality to a Cascading pipe. This includes running pipes
@@ -137,15 +137,6 @@ class KijiPipe(private[express] val pipe: Pipe)
   }
 
   /**
-   * TODO: remove
-   */
-  def packAvro(fieldSpec: (Fields, Fields)): Pipe = {
-    val (fromFields, toFields) = fieldSpec
-    require(toFields.size == 1, "Cannot pack to more than one field.")
-    pipe.map(fieldSpec) { input: AvroRecord => input }
-  }
-
-  /**
    * Packs the specified fields into an Avro [[org.apache.avro.generic.GenericRecord]].
    *
    * @param fields is the mapping of input fields (to be packed into the
@@ -157,7 +148,8 @@ class KijiPipe(private[express] val pipe: Pipe)
   def packGenericRecord(fields: (Fields, Fields))(schema: Schema): Pipe = {
     require(fields._2.size == 1, "Cannot pack generic record to more than a single field.")
     require(schema.getType == Schema.Type.RECORD, "Cannot pack non-record Avro type.")
-    pipe.map(fields) { input: GenericRecord => input } (new AvroGenericTupleConverter(schema),
+    pipe.map(fields) { input: GenericRecord => input } (
+      AvroGenericTupleConverter(new MeatLocker(schema)),
       implicitly[TupleSetter[GenericRecord]])
   }
 
@@ -174,19 +166,22 @@ class KijiPipe(private[express] val pipe: Pipe)
   def packGenericRecordTo(fields: (Fields, Fields))(schema: Schema): Pipe = {
     require(fields._2.size == 1, "Cannot pack generic record to more than a single field.")
     require(schema.getType == Schema.Type.RECORD, "Cannot pack to non-record Avro type.")
-    pipe.mapTo(fields) { input: GenericRecord => input } (new AvroGenericTupleConverter(schema),
+    pipe.mapTo(fields) { input: GenericRecord => input } (
+      AvroGenericTupleConverter(new MeatLocker(schema)),
       implicitly[TupleSetter[GenericRecord]])
   }
 
   /**
-   * Unpacks the specified fields from an [[org.kiji.express.AvroRecord]].
-   *
-   * @param fieldSpec is the mapping from the field to unpack to the fields to unpack to.
-   * @return a pipe containing a field with the record unpacked into new fields.
+   * TODO: remove
+   */
+  def packAvro(fieldSpec: (Fields, Fields)): Pipe = {
+    throw new UnsupportedOperationException("Removed by Dan")
+  }
+
+  /**
+   * TODO: remove
    */
   def unpackAvro(fieldSpec: (Fields, Fields)): Pipe = {
-    val (fromFields, toFields) = fieldSpec
-    require(fromFields.size == 1, "Cannot unpack from more than one field.")
-    pipe.map(fieldSpec) { input: Any => input }
+    throw new UnsupportedOperationException("Removed by Dan")
   }
 }

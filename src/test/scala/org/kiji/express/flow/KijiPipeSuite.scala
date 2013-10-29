@@ -31,8 +31,9 @@ import org.kiji.express.avro.SimpleRecord
 import cascading.tuple.Fields
 import org.apache.avro.specific.SpecificRecord
 import org.kiji.express.util.AvroTupleConversions
-import org.kiji.express.flow.FlowTestUtil._
-import org.apache.avro.generic.GenericRecord
+import org.apache.avro.generic.{GenericRecordBuilder, GenericRecord}
+import org.kiji.schema.layout.{KijiTableLayouts, KijiTableLayout}
+import scala.collection.mutable.Buffer
 
 /**
  * This class simulates running Express jobs in a REPL environment, therefore jobs are not created
@@ -44,9 +45,75 @@ class KijiPipeSuite
   extends KijiSuite
   with AvroTupleConversions {
 
-  // Create test Kiji table.
+  /** Name of dummy file for test job input. */
+  val inputFile: String = "inputFile"
+
+  /** Name of dummy file for test job output. */
+  val outputFile: String = "outputFile"
+
+  /** Input tuples to use for word count tests. */
+  val wordCountInput: List[(EntityId, KijiSlice[String])] = List(
+    ( EntityId("row01"), slice("family:column1", (1L, "hello")) ),
+    ( EntityId("row02"), slice("family:column1", (2L, "hello")) ),
+    ( EntityId("row03"), slice("family:column1", (1L, "world")) ),
+    ( EntityId("row04"), slice("family:column1", (3L, "hello")) ))
+
+  /** Table layout for word count tests. */
+  val wordCountLayout: KijiTableLayout = layout(KijiTableLayouts.SIMPLE_TWO_COLUMNS)
+
+  /** Output validator for word count tests. */
+  def validateWordCount(outputBuffer: Buffer[(String, Int)]) {
+    val outMap = outputBuffer.toMap
+
+    // Validate that the output is as expected.
+    assert(3 === outMap("hello"))
+    assert(1 === outMap("world"))
+  }
+
+  /** Schema of SimpleRecord Avro record. */
+  val simpleSchema = SimpleRecord.getClassSchema
+
+  /** Sample inputs for testing Avro packing / unpacking in tuple form. */
+  val simpleInput: List[(Long, String)] = List(
+    (1, "foobar"),
+    (2, "shoe"),
+    (3, "random"),
+    (99, "baloons"),
+    (356, "sumerians"))
+
+  /** Sample inputs for testing Avro packing / unpacking in Specific Record form. */
+  val simpleSpecificRecords: List[SimpleRecord] = simpleInput.map { t =>
+    SimpleRecord.newBuilder.setL(t._1).setS(t._2).build()
+  }
+
+  /** Sample inputs for testing Avro packing / unpacking in Generic Record form. */
+  val simpleGenericRecords: List[GenericRecord] = simpleInput.map { t =>
+    new GenericRecordBuilder(simpleSchema).set("l", t._1).set("s", t._2).build()
+  }
+
+  def validateSpecificSimpleRecord(outputs: Buffer[(Long, String, String, SimpleRecord)]) {
+    outputs.foreach { t =>
+      val (l, s, o, r) = t
+      assert(simpleSpecificRecords.contains(r))
+      assert(r.getL === l)
+      assert(r.getS === s)
+      assert(r.getO === o)
+    }
+  }
+
+  def validateGenericSimpleRecord(outputs: Buffer[(Long, String, String, GenericRecord)]) {
+    outputs.foreach { t =>
+      val (l, s, o, r) = t
+      assert(simpleGenericRecords.contains(r))
+      assert(r.get("l") === l)
+      assert(r.get("s") === s)
+      assert(r.get("o") === o)
+    }
+  }
+
+  /** Test Kiji table URI */
   val uri: String = doAndRelease(makeTestKijiTable(wordCountLayout)) { table: KijiTable =>
-    table.getURI().toString()
+    table.getURI.toString
   }
 
   test("A KijiPipe can be used to obtain a Scalding job runnable in local or Hadoop mode.") {
@@ -69,6 +136,7 @@ class KijiPipeSuite
     }
 
     val wordCount = JobTest(wordCountJob _)
+      .arg("output", outputFile)
       .source(KijiInput(uri, "family:column1" -> 'word), wordCountInput)
       .sink(Tsv(outputFile))(validateWordCount)
 

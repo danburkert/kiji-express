@@ -474,89 +474,37 @@ private[express] object KijiScheme {
       writer: KijiTableWriter,
       layout: KijiTableLayout,
       configuration: Configuration) {
-    val iterator = columns.keys.iterator
+
+    // Get the timestamp.
+    val timestamp: Long = timestampField
+        .map { field => output.getLong(field.name) }
+        .getOrElse(System.currentTimeMillis())
 
     // Get the entityId.
-    val entityId: EntityId =
-        output.getObject(entityIdField).asInstanceOf[EntityId]
+    val entityId = output
+        .getObject(entityIdField)
+        .asInstanceOf[EntityId]
+        .toJavaEntityId(EntityIdFactory.getFactory(layout))
 
-    // Get a timestamp to write the values to, if it was specified by the user.
-    val timestamp: Long = timestampField match {
-      case Some(field) => output.getObject(field.name).asInstanceOf[Long]
-      case None => System.currentTimeMillis()
-    }
-
-    val layoutVersion = ProtocolVersion.parse(layout.getDesc.getVersion)
-    val validationEnabled =  { layoutVersion.compareTo(Versions.LAYOUT_1_3_0) >= 0 }
-    val schemaTable = kiji.getSchemaTable
-
-    val eidFactory = EntityIdFactory.getFactory(layout)
-
-    /**
-     * Gets the schema from the schemaIdOption if it exists, otherwise tries to resolve the default
-     * reader schema for the table.  Returns None if neither of those are possible.
-     *
-     * @param columnName of the column to try to get the schema for.
-     * @param schemaSpecOption of the schema to try to resolve.
-     * @return a schema to use for writing, if possible.
-     */
-    def getSchemaIfPossible(
-        columnName: KijiColumnName,
-        schemaSpecOption: Option[WriterSchemaSpec]
-    ): Option[Schema] = {
-      schemaSpecOption match {
-        case Some(schemaSpec) => {
-          if (schemaSpec.useDefaultReader) {
-            return Some(layout.getCellSpec(columnName).getDefaultReaderSchema)
-          } else {
-            return Some(schemaTable.getSchema(schemaSpec.schemaId.get))
-          }
-        }
-        case None => { // The only situation in which no schemaId specified is okay
-          // is if avro validation policy is schema-1.0 compatibility mode.
-          if (
-              validationEnabled &&
-              layout.getCellSpec(columnName).getCellSchema.getAvroValidationPolicy
-                  !=  AvroValidationPolicy.SCHEMA_1_0) {
-            throw new InvalidKijiTapException(
-              "Column '%s' must have a schema specified.".format(columnName))
-          } else {
-            return None
-          }
-        }
-      }
-    }
-
-    iterator
+    columns.keys.iterator
         .foreach { fieldName =>
             val value = output.getObject(fieldName.toString)
             columns(fieldName.toString) match {
-              case cf @ ColumnFamily(
+              case ColumnFamily(
                   family,
                   qualField,
                   ColumnRequestOptions(_, _, _, _, _, schemaSpec)) => {
                 require(
                     qualField.isDefined,
                     "You cannot write to a map family without specifying a qualifier field.")
-                val qualifier = output.getObject(qualField.get).asInstanceOf[String]
-                val schema: Option[Schema] = getSchemaIfPossible(cf.getColumnName(), schemaSpec)
-                writer.put(entityId.toJavaEntityId(eidFactory),
-                    family,
-                    qualifier,
-                    timestamp,
-                    AvroUtil.encodeToJava(value, schema))
+                val qualifier = output.getString(qualField.get)
+                writer.put(entityId, family, qualifier, timestamp, value)
               }
-              case qc @ QualifiedColumn(
+              case QualifiedColumn(
                   family,
                   qualifier,
                   ColumnRequestOptions(_, _, _, _, _, schemaSpec)) => {
-                val schema: Option[Schema] = getSchemaIfPossible(qc.getColumnName(), schemaSpec)
-                writer.put(
-                    entityId.toJavaEntityId(eidFactory),
-                    family,
-                    qualifier,
-                    timestamp,
-                    AvroUtil.encodeToJava(value, schema))
+                writer.put(entityId, family, qualifier, timestamp, value)
               }
             }
         }

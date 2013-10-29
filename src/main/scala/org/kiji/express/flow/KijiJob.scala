@@ -86,4 +86,7 @@ class KijiJob(args: Args = Args(Nil))
         + " -Dorg.kiji.schema.impl.AvroCellEncoder.SCHEMA_VALIDATION=DISABLED")
     baseConfig ++ Map("mapred.child.java.opts" -> newJavaOpts)
   }
+
+  override def ioSerializations = super.ioSerializations :+
+    "cascading.avro.serialization.AvroSpecificRecordSerialization"
 }

@@ -24,7 +24,6 @@ import org.apache.avro.generic.GenericRecord
 import org.kiji.annotations.ApiAudience
 import org.kiji.annotations.ApiStability
 import org.kiji.annotations.Inheritance
-import org.kiji.express.AvroValue
 import org.kiji.express.EntityId
 import org.kiji.express.modeling.KeyValueStore
 import org.kiji.mapreduce.kvstore.{ KeyValueStoreReader => JKeyValueStoreReader }
@@ -59,9 +58,9 @@ private[express] final class KijiTableKeyValueStore[V](
 @Inheritance.Sealed
 private[express] final class AvroRecordKeyValueStore[K](
     kvStoreReader: JKeyValueStoreReader[_ <: Any, _ <: GenericRecord])
-    extends KeyValueStore[K, AvroValue](kvStoreReader)
+    extends KeyValueStore[K, K](kvStoreReader)
     with AvroScalaToJavaKeyConverter[K]
-    with AvroJavaToScalaValueConverter[AvroValue]
+    with AvroJavaToScalaValueConverter[K]
 
 /**
  * A KijiExpress key-value store backed by a KijiMR `AvroKVRecordKeyValueStore`. The

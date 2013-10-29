@@ -63,7 +63,6 @@ import org.kiji.express.flow.framework.KijiTap
 import org.kiji.express.flow.framework.LocalKijiScheme
 import org.kiji.express.flow.framework.LocalKijiTap
 import org.kiji.express.flow.framework.OutputContext
-import org.kiji.express.util.AvroUtil
 import org.kiji.express.util.GenericCellSpecs
 import org.kiji.express.util.Resources._
 import org.kiji.mapreduce.framework.KijiConfKeys
@@ -164,8 +163,7 @@ final class KijiSource private[express] (
       case Local(_) => new LocalKijiTap(tableUri, localKijiScheme).asInstanceOf[Tap[_, _, _]]
 
       // Test taps.
-      case HadoopTest(conf, buffers) => {
-        readOrWrite match {
+      case HadoopTest(conf, buffers) => readOrWrite match {
           case Read => {
             val scheme = kijiScheme
             populateTestTable(tableUri, buffers(this), scheme.getSourceFields, conf)
@@ -181,9 +179,7 @@ final class KijiSource private[express] (
             new KijiTap(tableUri, scheme).asInstanceOf[Tap[_, _, _]]
           }
         }
-      }
-      case Test(buffers) => {
-        readOrWrite match {
+      case Test(buffers) => readOrWrite match {
           // Use Kiji's local tap and scheme when reading.
           case Read => {
             val scheme = localKijiScheme
@@ -207,7 +203,6 @@ final class KijiSource private[express] (
             new LocalKijiTap(tableUri, scheme).asInstanceOf[Tap[_, _, _]]
           }
         }
-      }
 
       // Delegate any other tap types to Source's default behaviour.
       case _ => super.createTap(readOrWrite)(mode)
@@ -216,15 +211,14 @@ final class KijiSource private[express] (
     return tap
   }
 
+
+
  override def toString: String = {
     "KijiSource(table: %s, timeRange: %s, timestampField: %s, loggingInterval: %s, columns: %s)"
         .format(
             tableAddress,
             timeRange,
-            timestampField match {
-              case None => None
-              case Some(tsField) => tsField
-            },
+            timestampField.getOrElse(None),
             loggingInterval,
             columns)
   }
@@ -316,13 +310,12 @@ object KijiSource {
                   case None => None
                 }
 
-              val datum = AvroUtil.encodeToJava(cell.datum, schema)
               writer.put(
                 entityId.toJavaEntityId(eidFactory),
                 cell.family,
                 cell.qualifier,
                 cell.version,
-                datum)
+                cell.datum)
             }
           }
         }

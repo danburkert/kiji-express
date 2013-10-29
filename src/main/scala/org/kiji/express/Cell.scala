@@ -58,10 +58,10 @@ object Cell {
    *     and datum as cell produced by the Java API.
    */
   private[express] def apply[T](cell: KijiCell[T]): Cell[T] = {
-    new Cell[T](
+    new Cell(
         cell.getFamily,
         cell.getQualifier,
         cell.getTimestamp.longValue,
-        AvroUtil.decodeGenericFromJava(cell.getData).asInstanceOf[T])
+        cell.getData)
   }
 }

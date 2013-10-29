@@ -24,7 +24,6 @@ import org.apache.avro.generic.GenericRecord
 import org.kiji.annotations.ApiAudience
 import org.kiji.annotations.ApiStability
 import org.kiji.annotations.Inheritance
-import org.kiji.express.AvroValue
 import org.kiji.express.EntityId
 import org.kiji.express.modeling.impl.AvroKVRecordKeyValueStore
 import org.kiji.express.modeling.impl.AvroRecordKeyValueStore
@@ -188,8 +187,8 @@ private[express] object KeyValueStore {
    */
   def apply[K](
       kvStore: JAvroRecordKeyValueStore[_ <: Any, _ <: GenericRecord]
-  ): KeyValueStore[K, AvroValue] = {
-    new AvroRecordKeyValueStore[K](kvStore.open())
+  ): KeyValueStore[K, K] = {
+    throw new UnsupportedOperationException("Removed by Dan")
   }
 
   /**

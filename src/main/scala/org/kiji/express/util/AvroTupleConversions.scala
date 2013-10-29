@@ -29,7 +29,7 @@ import org.apache.avro.generic.{GenericRecordBuilder, GenericRecord}
 import org.apache.avro.Schema
 import org.kiji.annotations.{Inheritance, ApiStability, ApiAudience}
 import scala.reflect.Manifest
-import org.kiji.express.util.AvroTupleConversions
+import com.twitter.chill.MeatLocker
 
 /**
  * Provides implementations of Scalding abstract classes to enable packing and unpacking Avro
@@ -42,7 +42,7 @@ import org.kiji.express.util.AvroTupleConversions
 trait AvroTupleConversions {
   /**
    * [[com.twitter.scalding.TuplePacker]] implementation provides instances of the
-   * [[AvroTupleConversions.AvroSpecificTupleConverter]] for converting fields
+   * [[org.kiji.express.util.AvroSpecificTupleConverter]] for converting fields
    * in a Scalding flow into specific Avro records of the parameterized type.  An instance of this
    * class must be in implicit scope, or passed in explicitly to
    * [[com.twitter.scalding.RichPipe.pack]].
@@ -51,74 +51,7 @@ trait AvroTupleConversions {
    */
   private[express] class AvroSpecificTuplePacker[T <: SpecificRecord](implicit m: Manifest[T])
     extends TuplePacker[T] {
-    def newConverter(fields: Fields): TupleConverter[T] =
-      new AvroSpecificTupleConverter(fields)
-  }
-
-  /**
-   * Converts [[cascading.tuple.TupleEntry]]s with the given fields into an Avro
-   * [[org.apache.avro.specific.SpecificRecord]] instance of the parameterized type.  This
-   * converter will fill in default values of the record if not specified by tuple fields.
-   * @param fs The fields to convert into an Avro record.  The field names must match the field
-   *           names of the Avro record type.  There must be only one result field.
-   * @param m [[scala.reflect.Manifest]] of the target type.  Implicitly provided.
-   * @tparam T Type of the target specific Avro record.
-   */
-  private[express] class AvroSpecificTupleConverter[T](fs: Fields)(implicit m: Manifest[T])
-    extends TupleConverter[T] {
-
-    def arity: Int = -1
-
-    def toLowerFirst(s : String) = s(0).toLower + s.substring(1)
-    def setterToFieldName(setter : Method) = toLowerFirst(setter.getName.substring(3))
-
-    // Precompute as much of the reflection business as possible
-    val avroClass = m.erasure
-    val builderClass = avroClass.getDeclaredClasses.find(_.getSimpleName == "Builder").get
-    val newBuilderMethod = avroClass.getMethod("newBuilder")
-    val buildMethod = builderClass.getMethod("build")
-
-    val fields = fs
-      .iterator
-      .toList
-      .map(_.toString)
-
-    val setters = builderClass
-      .getDeclaredMethods
-      .filter(_.getName.startsWith("set"))
-      .groupBy(setterToFieldName)
-      .mapValues(_.head)
-      .filterKeys(fields.contains)
-
-    def apply(entry: TupleEntry): T = {
-      val builder = newBuilderMethod.invoke(avroClass)
-
-      setters.foreach { fs =>
-        val (field, setter) = fs
-        setter.invoke(builder, entry.getObject(field))
-      }
-
-      buildMethod.invoke(builder).asInstanceOf[T]
-    }
-  }
-
-  /**
-   * Converts [[cascading.tuple.TupleEntry]]s into an Avro [[org.apache.avro.generic.GenericRecord]]
-   * object with the provided schema.  This converter will fill in default values of the schema if
-   * they are not specified through fields.
-   *
-   * @param schema of the target record.
-   */
-  private[express] class AvroGenericTupleConverter(schema: Schema)
-    extends TupleConverter[GenericRecord] with TupleConversions {
-
-    override def arity: Int = -1
-
-    override def apply(entry: TupleEntry) = {
-      val builder = new GenericRecordBuilder(schema)
-      toMap(entry).foreach { kv => builder.set(kv._1, kv._2) }
-      builder.build()
-    }
+    def newConverter(fields: Fields): TupleConverter[T] = new AvroSpecificTupleConverter(fields, m)
   }
 
   /**
@@ -145,20 +78,87 @@ trait AvroTupleConversions {
   }
 
   /**
-   * Provides an [[AvroTupleConversions.AvroSpecificTuplePacker]] to the
+   * Provides an [[org.kiji.express.util.AvroTupleConversions.AvroSpecificTuplePacker]] to the
    * implicit scope.
    * @param mf implicitly provided [[scala.reflect.Manifest]] of provided Avro type.
    * @tparam T Avro compiled [[org.apache.avro.specific.SpecificRecord]] class.
-   * @return [[AvroTupleConversions.AvroSpecificTuplePacker]] for given Avro
+   * @return [[org.kiji.express.util.AvroTupleConversions.AvroSpecificTuplePacker]] for given Avro
    *         specific record type
    */
   implicit def avroSpecificTuplePacker[T <: SpecificRecord](implicit mf : Manifest[T]) =
     new AvroSpecificTuplePacker[T]
 
   /**
-   * Provides an [[AvroTupleConversions.AvroGenericTupleUnpacker]] to implicit
+   * Provides an [[org.kiji.express.util.AvroTupleConversions.AvroGenericTupleUnpacker]] to implicit
    * scope.
-   * @return an [[AvroTupleConversions.AvroGenericTupleUnpacker]] instance.
+   * @return an [[org.kiji.express.util.AvroTupleConversions.AvroGenericTupleUnpacker]] instance.
    */
   implicit def avroGenericTupleUnpacker = new AvroGenericTupleUnpacker
+}
+
+/**
+ * Converts [[cascading.tuple.TupleEntry]]s with the given fields into an Avro
+ * [[org.apache.avro.specific.SpecificRecord]] instance of the parameterized type.  This
+ * converter will fill in default values of the record if not specified by tuple fields.
+ * @param fs The fields to convert into an Avro record.  The field names must match the field
+ *           names of the Avro record type.  There must be only one result field.
+ * @param m [[scala.reflect.Manifest]] of the target type.  Implicitly provided.
+ * @tparam T Type of the target specific Avro record.
+ */
+private[express] case class AvroSpecificTupleConverter[T](fs: Fields, m: Manifest[T])
+  extends TupleConverter[T] {
+
+  def arity: Int = -1
+
+  def toLowerFirst(s : String) = s(0).toLower + s.substring(1)
+  def setterToFieldName(setter : Method) = toLowerFirst(setter.getName.substring(3))
+
+  // Precompute as much of the reflection business as possible
+  val avroClass = m.erasure
+  val builderClass = avroClass.getDeclaredClasses.find(_.getSimpleName == "Builder").get
+  lazy val newBuilderMethod = avroClass.getMethod("newBuilder")
+  lazy val buildMethod = builderClass.getMethod("build")
+
+  val fields = fs
+    .iterator
+    .toList
+    .map(_.toString)
+
+  lazy val setters = builderClass
+    .getDeclaredMethods
+    .filter(_.getName.startsWith("set"))
+    .groupBy(setterToFieldName)
+    .mapValues(_.head)
+    .filterKeys(fields.contains)
+
+  def apply(entry: TupleEntry): T = {
+    val builder = newBuilderMethod.invoke(avroClass)
+
+    setters.foreach { fs =>
+      val (field, setter) = fs
+      setter.invoke(builder, entry.getObject(field))
+    }
+
+    buildMethod.invoke(builder).asInstanceOf[T]
+  }
+}
+
+/**
+ * Converts [[cascading.tuple.TupleEntry]]s into an Avro [[org.apache.avro.generic.GenericRecord]]
+ * object with the provided schema.  This converter will fill in default values of the schema if
+ * they are not specified through fields.
+ *
+ * @param schema of the target record wrapped in a [[com.twitter.chill.MeatLocker]] for
+ *               serialization.
+ */
+private[express] case class AvroGenericTupleConverter(schema: MeatLocker[Schema])
+  extends TupleConverter[GenericRecord] with TupleConversions {
+
+  override def arity: Int = -1
+
+  override def apply(entry: TupleEntry) = {
+    val builder = new GenericRecordBuilder(schema.get)
+    toMap(entry).foreach { kv => builder.set(kv._1, kv._2) }
+    builder.build()
+  }
 }

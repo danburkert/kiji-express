@@ -23,7 +23,6 @@ import java.util.HashMap
 import java.util.{Map => JMap}
 
 import scala.collection.JavaConverters.asScalaSetConverter
-import scala.collection.mutable.{Map => MMap}
 
 import org.kiji.annotations.ApiAudience
 import org.kiji.annotations.ApiStability
@@ -83,8 +82,10 @@ object GenericCellSpecs {
         .foldLeft(new HashMap[KijiColumnName, CellSpec]()) { (specMap, columnName) =>
           val cellSpec = layout
               .getCellSpec(columnName)
-              .setUseWriterSchema()
               .setDecoderFactory(GenericCellDecoderFactory.get())
+          if (cellSpec.isAvro) {
+            cellSpec.setUseWriterSchema()
+          }
           specMap.put(columnName, cellSpec)
           specMap
         }
