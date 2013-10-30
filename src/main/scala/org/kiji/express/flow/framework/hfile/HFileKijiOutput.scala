@@ -22,9 +22,7 @@ package org.kiji.express.flow.framework.hfile
 import org.kiji.annotations.ApiAudience
 import org.kiji.annotations.ApiStability
 import org.kiji.annotations.Inheritance
-import org.kiji.express.flow.All
-import org.kiji.express.flow.KijiOutput
-import org.kiji.express.flow.ColumnRequestOutput
+import org.kiji.express.flow.{QualifiedColumnRequestOutput, All, KijiOutput, ColumnRequestOutput}
 
 /**
  * Factory methods for constructing [[org.kiji.express.flow.framework.hfile.HFileKijiSource]]s that
@@ -112,7 +110,7 @@ object HFileKijiOutput {
 
     val columnMap = columns
         .toMap
-        .mapValues(ColumnRequestOutput(_))
+        .mapValues(QualifiedColumnRequestOutput(_))
     new HFileKijiSource(
         tableAddress = tableUri,
         hFileOutput = hFileOutput,
@@ -167,7 +165,7 @@ object HFileKijiOutput {
   ): HFileKijiSource = {
     val columnMap = columns
         .toMap
-        .mapValues(ColumnRequestOutput(_))
+        .mapValues(QualifiedColumnRequestOutput(_))
 
     HFileKijiOutput(tableUri, hFileOutput, columnMap)
   }
