@@ -35,6 +35,7 @@ import org.kiji.schema.KijiColumnName
 import org.kiji.schema.KijiTable
 import org.kiji.schema.layout.CellSpec
 import org.kiji.schema.layout.KijiTableLayout
+import com.twitter.scalding.Field
 
 object SpecificCellSpecs {
   val CELLSPEC_OVERRIDE_CONF_KEY: String = "kiji.express.input.cellspec.overrides"
@@ -50,7 +51,7 @@ object SpecificCellSpecs {
    * @return a serialized form of a map from column name to AvroRecord class name.
    */
   def serializeOverrides(
-      columns: Map[String, ColumnRequestInput]
+      columns: Map[Symbol, InputColumnSpec]
   ): String = {
     val serializableOverrides = collectOverrides(columns)
         .map { entry: (KijiColumnName, Class[_ <: SpecificRecord]) =>
@@ -111,9 +112,9 @@ object SpecificCellSpecs {
    */
   def buildCellSpecs(
       layout: KijiTableLayout,
-      columns: Map[String, ColumnRequestInput]
+      columns: Map[Symbol, InputColumnSpec]
   ): Map[KijiColumnName, CellSpec] = {
-    return innerBuildCellSpecs(layout, collectOverrides(columns))
+    innerBuildCellSpecs(layout, collectOverrides(columns))
   }
 
   /**
@@ -127,12 +128,12 @@ object SpecificCellSpecs {
    *     reading values from that column.
    */
   private def collectOverrides(
-      columns: Map[String, ColumnRequestInput]
+      columns: Map[Symbol, InputColumnSpec]
   ): Map[KijiColumnName, Class[_ <: SpecificRecord]] = {
-    columns.values
-        // Need only those columns that have specific Avro classes defined
-        .filter { _.avroClass.isDefined }
-        .map { col => (col.getColumnName, col.avroClass.get) }
+    columns
+        .values
+        .map { spec => (spec.columnName, spec.schema) }
+        .collect { case (columnName, Specific(klass)) => (columnName, klass) }
         .toMap
   }
 
@@ -159,7 +160,7 @@ object SpecificCellSpecs {
         "These properties represent specific AvroRecord reader schema overrides. "
         + "Keys are columns, values are specific AvroRecord classes.",
         "UTF-8")
-    return outputStream.toString("UTF-8")
+    outputStream.toString("UTF-8")
   }
 
 

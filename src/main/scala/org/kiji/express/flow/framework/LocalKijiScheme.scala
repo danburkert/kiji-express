@@ -45,8 +45,8 @@ import org.slf4j.LoggerFactory
 
 import org.kiji.annotations.ApiAudience
 import org.kiji.annotations.ApiStability
-import org.kiji.express.flow.ColumnRequestInput
-import org.kiji.express.flow.ColumnRequestOutput
+import org.kiji.express.flow.InputColumnSpec
+import org.kiji.express.flow.OutputColumnSpec
 import org.kiji.express.flow.TimeRange
 import org.kiji.express.util.GenericCellSpecs
 import org.kiji.express.util.SpecificCellSpecs
@@ -62,6 +62,7 @@ import org.kiji.schema.KijiTableWriter
 import org.kiji.schema.KijiURI
 import org.kiji.schema.layout.CellSpec
 import org.kiji.schema.layout.KijiTableLayout
+import com.twitter.scalding.Field
 
 /**
  * Encapsulates the state required to read from a Kiji table locally, for use in
@@ -131,9 +132,9 @@ private[express] case class OutputContext(
 private[express] class LocalKijiScheme(
     private[express] val timeRange: TimeRange,
     private[express] val timestampField: Option[Symbol],
-    private[express] val icolumns: Map[String, ColumnRequestInput] = Map(),
-    private[express] val ocolumns: Map[String, ColumnRequestOutput] = Map())
-    extends Scheme[Properties, InputStream, OutputStream, InputContext, OutputContext] {
+    private[express] val icolumns: Map[Symbol, InputColumnSpec] = Map(),
+    private[express] val ocolumns: Map[Symbol, OutputColumnSpec] = Map()
+) extends Scheme[Properties, InputStream, OutputStream, InputContext, OutputContext] {
   private val logger: Logger = LoggerFactory.getLogger(classOf[LocalKijiScheme])
 
   /** Set the fields that should be in a tuple when this source is used for reading and writing. */

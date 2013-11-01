@@ -32,8 +32,8 @@ import org.kiji.express.EntityId
 import org.kiji.express.KijiSlice
 import org.kiji.express.KijiSuite
 import org.kiji.express.flow.All
-import org.kiji.express.flow.ColumnRequestInput
-import org.kiji.express.flow.ColumnRequestOutput
+import org.kiji.express.flow.InputColumnSpec
+import org.kiji.express.flow.OutputColumnSpec
 import org.kiji.express.util.GenericCellSpecs
 import org.kiji.schema.EntityIdFactory
 
@@ -50,8 +50,8 @@ class KijiSchemeSuite extends KijiSuite {
     val reader = table.getReaderFactory.openTableReader(GenericCellSpecs(table))
 
     // Set up the columns and fields.
-    val columnsOutput = Map("columnSymbol" -> ColumnRequestOutput("family:column3"))
-    val columnsInput = Map("columnSymbol" -> ColumnRequestInput("family:column3"))
+    val columnsOutput = Map("columnSymbol" -> ColumnOutputSpec("family:column3"))
+    val columnsInput = Map("columnSymbol" -> InputColumnSpec("family:column3"))
     val sourceFields = KijiScheme.buildSourceFields(columnsOutput.keys)
 
     // Create a dummy record with an entity ID to put in the table.

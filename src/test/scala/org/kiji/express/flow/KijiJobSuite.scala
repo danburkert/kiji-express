@@ -106,7 +106,7 @@ class KijiJobSuite extends KijiSuite {
         .arg("input", uri)
         .arg("output", "outputFile")
         .source(
-            KijiInput(uri, Map(ColumnRequestInput("family:column3") -> 'slice)),
+            KijiInput(uri, Map(InputColumnSpec("family:column3") -> 'slice)),
             unpackingInput)
         .sink(Tsv("outputFile"))(validatePacking)
 

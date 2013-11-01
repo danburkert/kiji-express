@@ -42,8 +42,8 @@ import org.kiji.schema.filter.RegexQualifierColumnFilter
  *
  * === Requesting columns and map-type column families. ===
  * Specify columns to read from a Kiji table using instances of the
- * [[org.kiji.express.flow.QualifiedColumnRequestInput]] and
- * [[org.kiji.express.flow.ColumnFamilyRequestInput]] classes, which contain fields for specifying
+ * [[org.kiji.express.flow.GroupTypeInputColumnSpec]] and
+ * [[org.kiji.express.flow.MapTypeInputColumnSpec]] classes, which contain fields for specifying
  * the names of the columns to read, as well as what data to read back (e.g., only the latest
  * version of a cell, or a certain number of recent versions) and how it is read back (e.g., using
  * paging to limit the amount of data in memory).
@@ -104,8 +104,8 @@ import org.kiji.schema.filter.RegexQualifierColumnFilter
  *   var myFamilyRequest = ColumnFamilyRequestOutput("searches", "terms")
  * }}}
  *
- * See [[org.kiji.express.flow.QualifiedColumnRequestOutput]] and
- * [[org.kiji.express.flow.ColumnFamilyRequestOutput]] for a full list of options for column write
+ * See [[org.kiji.express.flow.GroupTypeOutputColumnSpec]] and
+ * [[org.kiji.express.flow.MapTypeOutputColumnSpec]] for a full list of options for column write
  * requests.
  *
  * === Getting input from a Kiji table. ===

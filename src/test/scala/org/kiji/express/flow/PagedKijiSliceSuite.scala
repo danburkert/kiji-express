@@ -50,7 +50,7 @@ class WordConcatJob(args: Args) extends KijiJob(args) {
   // Setup input to bind values from the "family:column1" column to the symbol 'word.
   KijiInput(
       args("input"),
-      Map(ColumnRequestInput("family:column1", all, pageSize=Some(3)) -> 'word))
+      Map(InputColumnSpec("family:column1", all, pageSize=Some(3)) -> 'word))
     // Sanitize the word.
     .map('word -> 'cleanword) { words: PagedKijiSlice[CharSequence] =>
       words.foldLeft("")((a: String, b: Cell[CharSequence]) => a + b.datum.toString)
@@ -73,7 +73,7 @@ class WordCountFlatMapJob(args: Args) extends KijiJob(args) {
   // Setup input to bind values from the "family:column1" column to the symbol 'word.
   KijiInput(
       args("input"),
-      Map(ColumnRequestInput("family:column1", all, pageSize=Some(3)) -> 'word))
+      Map(InputColumnSpec("family:column1", all, pageSize=Some(3)) -> 'word))
 
       // Sanitize the word.
       .flatMap('word -> 'word) { words: PagedKijiSlice[CharSequence] =>
@@ -120,7 +120,7 @@ class PagedKijiSliceSuite extends KijiSuite {
       .source(
           KijiInput(
             uri,
-            Map(ColumnRequestInput("family:column1", all, pageSize=Some(3)) -> 'word)),
+            Map(InputColumnSpec("family:column1", all, pageSize=Some(3)) -> 'word)),
           wordCountInput(uri))
       .sink(Tsv("outputFile"))(validateWordConcat)
       // Run the test job.
@@ -165,7 +165,7 @@ class PagedKijiSliceSuite extends KijiSuite {
         .source(
             KijiInput(
                 uri,
-                Map(ColumnRequestInput("family:column1", all, pageSize=Some(3)) -> 'word)),
+                Map(InputColumnSpec("family:column1", all, pageSize=Some(3)) -> 'word)),
             wordCountInput(uri))
         .sink(Tsv("outputFile"))(validateWordCount)
         // Run the test job.

@@ -21,6 +21,8 @@ package org.kiji.express.modeling.framework
 
 import scala.collection.JavaConverters._
 
+import com.twitter.scalding.Field
+
 import org.kiji.express.avro.AvroColumn
 import org.kiji.express.avro.AvroColumnRangeFilter
 import org.kiji.express.avro.AvroDataRequest
@@ -628,7 +630,7 @@ object ModelConverters {
             .setTableUri(uri)
             .setFieldBindings(bindings.map { fieldBindingToAvro } .asJava)
             // scalastyle:off null
-            .setTimestampField(timestampField.getOrElse(null))
+            .setTimestampField(timestampField.map(_.toString).getOrElse(null))
             // scalastyle:on null
             .build()
 

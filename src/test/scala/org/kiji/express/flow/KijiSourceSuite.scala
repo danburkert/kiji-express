@@ -322,7 +322,7 @@ class KijiSourceSuite
 
     // Build test job.
     val source =
-        KijiInput(uri, Map((ColumnRequestInput("family:column1", maxVersions=2) -> 'words)))
+        KijiInput(uri, Map((InputColumnSpec("family:column1", maxVersions=2) -> 'words)))
     JobTest(new VersionsJob(source)(_))
         .arg("output", "outputFile")
         .source(source, versionCountInput(uri))
@@ -412,8 +412,8 @@ class KijiSourceSuite
       .arg("output", "outputFile")
       .source(KijiInput(uri,
         Map(
-          ColumnRequestInput("family:column1") -> 'word1,
-          new QualifiedColumnRequestInput("family", "column2")
+          InputColumnSpec("family:column1") -> 'word1,
+          new GroupTypeInputColumnSpec("family", "column2")
       .replaceMissingWith("missing") -> 'word2)), missingValuesInput(uri))
       .sink(Tsv("outputFile"))(validateMissingValuesReplaced)
 
@@ -453,7 +453,7 @@ class KijiSourceSuite
     // Build test job.
     val testSource = KijiInput(
         uri,
-        Map((ColumnRequestInput("family:column1", maxVersions=all) -> 'word)))
+        Map((InputColumnSpec("family:column1", maxVersions=all) -> 'word)))
     JobTest(new AvroToScalaChecker(testSource)(_))
       .arg("input", uri)
       .arg("output", "outputFile")
@@ -487,7 +487,7 @@ class KijiSourceSuite
     val jobTest = JobTest(new GenericAvroReadJob(_))
         .arg("input", uri)
         .arg("output", "outputFile")
-        .source(KijiInput(uri, Map (ColumnRequestInput("family:column3") -> 'records)),
+        .source(KijiInput(uri, Map (InputColumnSpec("family:column3") -> 'records)),
             genericReadInput(uri))
         .sink(Tsv("outputFile"))(validateGenericRead)
 
@@ -526,9 +526,9 @@ class KijiSourceSuite
         timeRange = All,
         timestampField = None,
         loggingInterval = 1000,
-        inputColumns = Map('records -> ColumnRequestInput(
+        inputColumns = Map('records -> InputColumnSpec(
           "family:column3", avroClass=Some(classOf[SpecificRecordTest]))),
-        outputColumns = Map('records -> ColumnRequestOutput(
+        outputColumns = Map('records -> ColumnOutputSpec(
           "family:column3")))
 
     val jobTest = JobTest(new SpecificAvroReadJob(_))
@@ -622,7 +622,7 @@ class KijiSourceSuite
         .arg("table", uri)
         .source(TextLine("inputFile"), mapTypeInput)
         .sink(KijiOutput(uri, Map('resultCount ->
-            new ColumnFamilyRequestOutput("searches", "terms"))))(validateMapWrite)
+            new MapTypeOutputColumnSpec("searches", "terms"))))(validateMapWrite)
 
     // Run the test.
     jobTest.run.finish
@@ -759,8 +759,8 @@ object KijiSourceSuite {
   class PluralizeReplaceJob(args: Args) extends KijiJob(args) {
     KijiInput(args("input"),
         Map(
-            ColumnRequestInput("family:column1") -> 'word1,
-            new QualifiedColumnRequestInput("family", "column2")
+            InputColumnSpec("family:column1") -> 'word1,
+            new GroupTypeInputColumnSpec("family", "column2")
                 .replaceMissingWith("missing") -> 'word2))
     .map('word2 -> 'pluralword) { words: KijiSlice[String] =>
       words.getFirst().datum + "s"
@@ -891,9 +891,9 @@ object KijiSourceSuite {
         timeRange = All,
         timestampField = None,
         loggingInterval = 1000,
-        inputColumns = Map('records -> ColumnRequestInput(
+        inputColumns = Map('records -> InputColumnSpec(
           "family:column3", avroClass=Some(classOf[SpecificRecordTest]))),
-        outputColumns = Map('records -> ColumnRequestOutput(
+        outputColumns = Map('records -> ColumnOutputSpec(
           "family:column3")))
     ksource
         .map('records -> 'hashSizeField) { slice: KijiSlice[AvroValue] =>
@@ -951,7 +951,7 @@ object KijiSourceSuite {
         }
         // Write the results to the "family:column1" column of a Kiji table.
         .write(KijiOutput(args("table"), Map('resultCount ->
-          new ColumnFamilyRequestOutput("searches", "terms"))))
+          new MapTypeOutputColumnSpec("searches", "terms"))))
   }
 
   /**

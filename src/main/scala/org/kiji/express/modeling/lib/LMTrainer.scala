@@ -196,8 +196,7 @@ final case class LMTrainer() extends Trainer {
     var dist: Double = Double.MaxValue
     breakable {
       for (index <- 1 to max_iter) {
-        val (parameters:IndexedSeq[Double], partialDerivatives: IndexedSeq[Double]) =
-            vectorizeParameters(parameterSource)
+        val (parameters, partialDerivatives) = vectorizeParameters(parameterSource)
         logger.debug("parameters: " + parameters)
         dist = calculateError(partialDerivatives)
         logger.debug("error: " + dist)

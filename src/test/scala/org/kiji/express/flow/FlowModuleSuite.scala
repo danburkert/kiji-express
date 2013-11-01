@@ -37,23 +37,23 @@ class FlowModuleSuite extends FunSuite {
   test("Flow module forbids creating an input map-type column with a qualifier in the column "
       + "name.") {
     intercept[KijiInvalidNameException] {
-      val colReq = new ColumnFamilyRequestInput("info:word")
+      val colReq = new MapTypeInputColumnSpec("info:word")
     }
   }
 
   test("Flow module forbids creating an output map-type column with a qualifier in the column "
       + "name.") {
     intercept[KijiInvalidNameException] {
-      val colReq = new ColumnFamilyRequestOutput("info:word", "foo")
+      val colReq = new MapTypeOutputColumnSpec("info:word", 'foo)
     }
   }
 
   test("Flow module permits creating an output map-type column specifying the qualifier field") {
-    val colReq = new ColumnFamilyRequestOutput("searches", "terms")
+    val colReq = new MapTypeOutputColumnSpec("searches", 'terms)
   }
 
   test("Flow module permits specifying a qualifier regex on map-type columns requests.") {
-    val colReq = new ColumnFamilyRequestInput(
+    val colReq = new MapTypeInputColumnSpec(
         "search",
         filter = Some(new RegexQualifierColumnFilter(""".*\.com"""))
     )
@@ -64,7 +64,7 @@ class FlowModuleSuite extends FunSuite {
 
   test("Flow module permits specifying a qualifier regex (with filter) on map-type column "
       + "requests.") {
-    val colReq = new ColumnFamilyRequestInput("search",
+    val colReq = new MapTypeInputColumnSpec("search",
       filter=Some(new RegexQualifierColumnFilter(""".*\.com""")))
 
     // TODO: Test it filters keyvalues correctly.
@@ -72,26 +72,26 @@ class FlowModuleSuite extends FunSuite {
   }
 
   test("Flow module permits specifying versions on map-type columns without qualifier regex.") {
-    val colReq = ColumnFamilyRequestInput("search", maxVersions=2)
+    val colReq = MapTypeInputColumnSpec("search", maxVersions=2)
     assert(2 === colReq.maxVersions)
   }
 
   test("Flow module permits specifying versions on a group-type column.") {
-    val colReq = QualifiedColumnRequestInput("info", "word", maxVersions=2)
+    val colReq = GroupTypeInputColumnSpec("info", "word", maxVersions=2)
     assert(2 === colReq.maxVersions)
   }
 
   test("Flow module uses default versions of 1 for map-type and group-type column requests.") {
-    val groupReq = QualifiedColumnRequestInput("info", "word")
-    val mapReq = ColumnFamilyRequestInput("searches")
+    val groupReq = GroupTypeInputColumnSpec("info", "word")
+    val mapReq = MapTypeInputColumnSpec("searches")
 
     assert(1 === groupReq.maxVersions)
     assert(1 === mapReq.maxVersions)
   }
 
   test("Flow module permits creating inputs and outputs with no mappings.") {
-    val input: KijiSource = KijiInput(tableURI, columns = Map[ColumnRequestInput, Symbol]())
-    val output: KijiSource = KijiOutput(tableURI, columns = Map[Symbol, ColumnRequestOutput]())
+    val input: KijiSource = KijiInput(tableURI, columns = Map[InputColumnSpec, Symbol]())
+    val output: KijiSource = KijiOutput(tableURI, columns = Map[Symbol, OutputColumnSpec]())
 
     assert(input.inputColumns.isEmpty)
     assert(input.outputColumns.isEmpty)
@@ -105,7 +105,7 @@ class FlowModuleSuite extends FunSuite {
         timeRange = All,
         timestampField = None,
         loggingInterval = 1000,
-        inputColumns = Map("word" -> QualifiedColumnRequestInput("info", "word")))
+        inputColumns = Map('word -> GroupTypeInputColumnSpec("info", "word")))
 
     assert(expectedScheme === input.hdfsScheme)
   }
@@ -116,7 +116,7 @@ class FlowModuleSuite extends FunSuite {
         Between(0L, 40L),
         None,
         1000,
-        Map("word" -> QualifiedColumnRequestInput("info", "word")))
+        Map('word -> GroupTypeInputColumnSpec("info", "word")))
 
     assert(expectedScheme === input.hdfsScheme)
   }
@@ -128,9 +128,8 @@ class FlowModuleSuite extends FunSuite {
           All,
           None,
           1000,
-          Map(
-              "word" -> QualifiedColumnRequestInput("info", "word"),
-              "title" -> QualifiedColumnRequestInput("info", "title")))
+          Map('word -> GroupTypeInputColumnSpec("info", "word"),
+              'title -> GroupTypeInputColumnSpec("info", "title")))
     }
 
     assert(expectedScheme === input.hdfsScheme)
@@ -138,14 +137,14 @@ class FlowModuleSuite extends FunSuite {
 
   test("Flow module permits specifying options for a column.") {
     val input: KijiSource =
-        KijiInput(tableURI, Map(QualifiedColumnRequestInput("info", "word") -> 'word))
+        KijiInput(tableURI, Map(GroupTypeInputColumnSpec("info", "word") -> 'word))
 
     val input2: KijiSource =
         KijiInput(
             tableURI,
-            Map(QualifiedColumnRequestInput("info", "word", maxVersions = 1) -> 'word))
+            Map(GroupTypeInputColumnSpec("info", "word", maxVersions = 1) -> 'word))
 
-    val input3: KijiSource = KijiInput(tableURI, Map( new ColumnFamilyRequestInput(
+    val input3: KijiSource = KijiInput(tableURI, Map( new MapTypeInputColumnSpec(
         "searches",
         maxVersions = 1,
         filter = Some(new RegexQualifierColumnFilter(".*"))) -> 'word))
@@ -153,16 +152,16 @@ class FlowModuleSuite extends FunSuite {
 
   test("A qualified Column can specify a replacement that is a single value.") {
     val defaultVal = "replacement"
-    val col = QualifiedColumnRequestInput(
+    val col = GroupTypeInputColumnSpec(
         "family", "qualifier",
         default = Some(new KijiSlice(List(Cell(
             "family",
             "qualifier",
             HConstants.LATEST_TIMESTAMP,
             defaultVal)))))
-    assert(col.isInstanceOf[QualifiedColumnRequestInput])
+    assert(col.isInstanceOf[GroupTypeInputColumnSpec])
 
-    val qualifiedColumn = col.asInstanceOf[QualifiedColumnRequestInput]
+    val qualifiedColumn = col.asInstanceOf[GroupTypeInputColumnSpec]
     val replacementOption: Option[KijiSlice[_]] = qualifiedColumn.default
     assert(replacementOption.isDefined)
 
@@ -173,11 +172,16 @@ class FlowModuleSuite extends FunSuite {
   }
 
   test("A ColumnFamily can specify a replacement that is a single value.") {
-    val col = new ColumnFamilyRequestInput("family")
-    .replaceMissingWith("qualifier", "replacement")
-    assert(col.isInstanceOf[ColumnFamilyRequestInput])
+    val defaultSlice = new KijiSlice(
+          List(Cell("info", "qualifier", HConstants.LATEST_TIMESTAMP, "replacement"))
+    )
 
-    val columnFamily = col.asInstanceOf[ColumnFamilyRequestInput]
+    val columnSpec = new MapTypeInputColumnSpec("family", default = new KijiSlice(List(Cell( family, qualifier, HConstants.LATEST_TIMESTAMP, datum))))
+    .replaceMissingWith("qualifier", "replacement")
+    assert(columnSpec.isInstanceOf[MapTypeInputColumnSpec])
+    
+    
+
     val replacementOption: Option[KijiSlice[_]] = columnFamily.default
     assert(replacementOption.isDefined)
 
@@ -189,10 +193,10 @@ class FlowModuleSuite extends FunSuite {
 
   test("A qualified Column can specify a replacement that is a single value with a timestamp.") {
     val defaultSlice = new KijiSlice(List(Cell("family", "qualifier", 10L, "replacement")))
-    val col = QualifiedColumnRequestInput("family", "qualifier", default = Some(defaultSlice))
-    assert(col.isInstanceOf[QualifiedColumnRequestInput])
+    val col = GroupTypeInputColumnSpec("family", "qualifier", default = Some(defaultSlice))
+    assert(col.isInstanceOf[GroupTypeInputColumnSpec])
 
-    val qualifiedColumn = col.asInstanceOf[QualifiedColumnRequestInput]
+    val qualifiedColumn = col.asInstanceOf[GroupTypeInputColumnSpec]
     val replacementOption: Option[KijiSlice[_]] = qualifiedColumn.default
     assert(replacementOption.isDefined)
 
@@ -205,10 +209,10 @@ class FlowModuleSuite extends FunSuite {
 
   test("A ColumnFamily can specify a replacement that is a single value with a timestamp.") {
     val defaultSlice = new KijiSlice(List(Cell("family", "qualifier", 10L, "replacement")))
-    val col = new ColumnFamilyRequestInput("family", default = Some(defaultSlice))
-    assert(col.isInstanceOf[ColumnFamilyRequestInput])
+    val col = new MapTypeInputColumnSpec("family", default = Some(defaultSlice))
+    assert(col.isInstanceOf[MapTypeInputColumnSpec])
 
-    val columnFamily = col.asInstanceOf[ColumnFamilyRequestInput]
+    val columnFamily = col.asInstanceOf[MapTypeInputColumnSpec]
     val replacementOption: Option[KijiSlice[_]] = columnFamily.default
     assert(replacementOption.isDefined)
 
@@ -224,10 +228,10 @@ class FlowModuleSuite extends FunSuite {
         Cell("family", "qualifier", HConstants.LATEST_TIMESTAMP, "replacement1"),
         Cell("family", "qualifier", HConstants.LATEST_TIMESTAMP, "replacement2")))
 
-    val col = QualifiedColumnRequestInput("family", "qualifier", default=Some(defaultSlice))
-    assert(col.isInstanceOf[QualifiedColumnRequestInput])
+    val col = GroupTypeInputColumnSpec("family", "qualifier", default=Some(defaultSlice))
+    assert(col.isInstanceOf[GroupTypeInputColumnSpec])
 
-    val qualifiedColumn = col.asInstanceOf[QualifiedColumnRequestInput]
+    val qualifiedColumn = col.asInstanceOf[GroupTypeInputColumnSpec]
     val replacementOption: Option[KijiSlice[_]] = qualifiedColumn.default
     assert(replacementOption.isDefined)
 
@@ -244,10 +248,10 @@ class FlowModuleSuite extends FunSuite {
         Cell("family", "qualifier2", HConstants.LATEST_TIMESTAMP, "replacement2")))
 
     //val col = new ColumnFamilyRequestInput("family", 'qualifier, default = Some(defaultSlice))
-    val col = new ColumnFamilyRequestInput("family", default = Some(defaultSlice))
-    assert(col.isInstanceOf[ColumnFamilyRequestInput])
+    val col = new MapTypeInputColumnSpec("family", default = Some(defaultSlice))
+    assert(col.isInstanceOf[MapTypeInputColumnSpec])
 
-    val columnFamily = col.asInstanceOf[ColumnFamilyRequestInput]
+    val columnFamily = col.asInstanceOf[MapTypeInputColumnSpec]
     val replacementOption: Option[KijiSlice[_]] = columnFamily.default
     assert(replacementOption.isDefined)
 
@@ -260,10 +264,10 @@ class FlowModuleSuite extends FunSuite {
 
   test("A QualifiedColumnRequestInput can specify a replacement that is multiple values with "
       + "timestamps.") {
-    val col = QualifiedColumnRequestInput("family", "qualifier")
-    assert(col.isInstanceOf[QualifiedColumnRequestInput])
+    val col = GroupTypeInputColumnSpec("family", "qualifier")
+    assert(col.isInstanceOf[GroupTypeInputColumnSpec])
 
-    val qualifiedColumn = col.asInstanceOf[QualifiedColumnRequestInput]
+    val qualifiedColumn = col.asInstanceOf[GroupTypeInputColumnSpec]
         .replaceMissingWithVersioned(List((10L, "replacement1"), (20L, "replacement2")))
     val replacementOption: Option[KijiSlice[_]] = qualifiedColumn.default
     assert(replacementOption.isDefined)
@@ -277,7 +281,7 @@ class FlowModuleSuite extends FunSuite {
 
   test("A ColumnFamilyRequestInput can specify a replacement that is multiple values with "
       + "timestamps.") {
-    val columnFamily = new ColumnFamilyRequestInput("family")
+    val columnFamily = new MapTypeInputColumnSpec("family")
         .replaceMissingWithVersioned(List(
             ("qualifier1", 10L, "replacement1"),
             ("qualifier2", 20L, "replacement2")))
@@ -297,8 +301,8 @@ class FlowModuleSuite extends FunSuite {
     val input: KijiSource = KijiInput(
         tableURI,
         Map(
-            QualifiedColumnRequestInput("info", "word", maxVersions=1) -> 'word,
-            QualifiedColumnRequestInput("info", "title", maxVersions=2) -> 'title))
+            GroupTypeInputColumnSpec("info", "word", maxVersions=1) -> 'word,
+            GroupTypeInputColumnSpec("info", "title", maxVersions=2) -> 'title))
   }
 
   test("Flow module permits creating KijiSource with the default timestamp field") {
@@ -307,7 +311,7 @@ class FlowModuleSuite extends FunSuite {
         timeRange = All,
         timestampField = None,
         loggingInterval = 1000,
-        outputColumns = Map("words" -> QualifiedColumnRequestOutput("info", "words")))
+        outputColumns = Map("words" -> GroupTypeOutputColumnSpec("info", "words")))
     assert(expectedScheme === output.hdfsScheme)
   }
 
@@ -317,7 +321,7 @@ class FlowModuleSuite extends FunSuite {
         timeRange = All,
         timestampField = Some('time),
         loggingInterval = 1000,
-        outputColumns = Map("words" -> QualifiedColumnRequestOutput("info", "words")))
+        outputColumns = Map("words" -> GroupTypeOutputColumnSpec("info", "words")))
     assert(expectedScheme === output.hdfsScheme)
   }
 }

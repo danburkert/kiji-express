@@ -22,6 +22,7 @@ package org.kiji.express.modeling.config
 import org.kiji.annotations.ApiAudience
 import org.kiji.annotations.ApiStability
 import org.kiji.annotations.Inheritance
+import com.twitter.scalding.Field
 
 /**
  * Represents the configuration for an output data source for a phase of the model lifecycle.

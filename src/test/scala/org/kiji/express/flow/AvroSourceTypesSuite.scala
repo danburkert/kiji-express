@@ -28,12 +28,9 @@ import org.scalatest.junit.JUnitRunner
 import org.kiji.express.EntityId
 import org.kiji.express.KijiSlice
 import org.kiji.express.KijiSuite
-import org.kiji.schema.KijiTableReader
-import org.kiji.schema.KijiTableWriter
-import org.kiji.schema.KijiClientTest
-import org.kiji.schema.Kiji
-import org.kiji.schema.KijiTable
-import org.kiji.schema.KijiDataRequest
+import org.kiji.schema._
+import org.apache.avro.Schema
+import org.kiji.schema.avro.{SchemaType, CellSchema}
 
 @RunWith(classOf[JUnitRunner])
 class AvroSourceTypesSuite extends KijiClientTest with KijiSuite {
@@ -81,6 +78,10 @@ class AvroSourceTypesSuite extends KijiClientTest with KijiSuite {
     val input = column + "-in"
     val output = column + "-out"
     val colfam = "family:" + column
+    val schema: CellSchema = layout.getCellSchema(new KijiColumnName(colfam))
+
+    def isAvro(schema: CellSchema) = schema.getType == SchemaType.AVRO
+
     writeValue(input, column, value)
 
     class ReadWriteJob(args: Args) extends KijiJob(args) {
@@ -102,8 +103,15 @@ class AvroSourceTypesSuite extends KijiClientTest with KijiSuite {
     testExpressReadWrite[Array[Byte]]("raw", "Who do voodoo?".getBytes("UTF8"))
   }
 
-  test("null avro type column results in a KijiSlice[Null]") {}
-  test("boolean avro type column results in a KijiSlice[Boolean]") {}
+  test("null avro type column results in a KijiSlice[Null]") {
+    testExpressReadWrite[Null]("null", null)
+  }
+
+  test("boolean avro type column results in a KijiSlice[Boolean]") {
+    testExpressReadWrite[Boolean]("boolean", true)
+    testExpressReadWrite[Boolean]("boolean", false)
+
+  }
   test("int avro type column results in a KijiSlice[Int]") {}
   test("long avro type column results in a KijiSlice[Long]") {}
   test("float avro type column results in a KijiSlice[Float]") {}
