@@ -162,7 +162,7 @@ extends Tap[JobConf, RecordReader[KijiKey, KijiValue], OutputCollector[_, _]](
   override def sinkConfInit(flow: FlowProcess[JobConf], conf: JobConf) {
     FileOutputFormat.setOutputPath(conf, new Path(hFileOutput))
     DeprecatedOutputFormatWrapper.setOutputFormat(classOf[KijiHFileOutputFormat], conf)
-    val hfContext = classOf[HFileWriterContext].getName()
+    val hfContext = classOf[HFileWriterContext].getName
     conf.set(KijiConfKeys.KIJI_TABLE_CONTEXT_CLASS, hfContext)
     // Store the output table.
     conf.set(KijiConfKeys.KIJI_OUTPUT_TABLE_URI, tableUri)

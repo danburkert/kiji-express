@@ -86,12 +86,8 @@ class HFileKijiJob(args: Args) extends KijiJob(args) {
 
   @transient
   lazy private val jobConf: Configuration = implicitly[Mode] match {
-    case Hdfs(_, configuration) => {
-      configuration
-    }
-    case HadoopTest(configuration, _) => {
-      configuration
-    }
+    case Hdfs(_, configuration) => configuration
+    case HadoopTest(configuration, _) => configuration
     case _ => new JobConf()
   }
 
@@ -102,7 +98,7 @@ class HFileKijiJob(args: Args) extends KijiJob(args) {
 
   override def config(implicit mode: Mode): Map[AnyRef, AnyRef] = {
     val baseConfig = super.config(mode)
-    baseConfig ++ Map(HFileKijiOutput.TEMP_HFILE_OUTPUT_KEY -> tempPath.toString())
+    baseConfig + (HFileKijiOutput.TEMP_HFILE_OUTPUT_KEY -> tempPath.toString)
   }
 
   override def buildFlow(implicit mode: Mode): Flow[_] = {
@@ -164,5 +160,6 @@ private final class HFileMapJob(args: Args) extends HFileKijiJob(args) {
   }
 
   WritableSequenceFile[HFileKeyValue, NullWritable](args("input"), ('keyValue, 'bogus))
+      .read
       .write(new HFileSource(args(TableOutputArgName),args(HFileOutputArgName)))
 }

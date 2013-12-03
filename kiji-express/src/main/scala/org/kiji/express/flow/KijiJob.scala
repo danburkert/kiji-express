@@ -41,6 +41,7 @@ import org.kiji.express.flow.framework.KijiTap
 import org.kiji.express.flow.framework.LocalKijiTap
 import org.kiji.express.flow.util.AvroTupleConversions
 import org.kiji.express.flow.util.PipeConversions
+import cascading.flow.Flow
 
 /**
  * KijiJob is KijiExpress's extension of Scalding's `Job`, and users should extend it when writing
@@ -87,6 +88,13 @@ class KijiJob(args: Args = Args(Nil))
 
     // Call any validation that scalding's Job class does.
     super.validateSources(mode)
+  }
+
+  override def buildFlow(implicit mode : Mode): Flow[_] = {
+    val flow = super.buildFlow(mode)
+    flow.writeDOT("target/flow.dot")
+    flow.writeStepsDOT("target/steps.dot")
+    flow
   }
 
   override def config(implicit mode: Mode): Map[AnyRef, AnyRef] = {
