@@ -90,16 +90,16 @@ private[express] class HFileKijiScheme(
   import KijiScheme._
   import HFileKijiScheme._
 
-  // ColumnInputSpec and ColumnOutputSpec objects cannot be correctly serialized via
+  // ColumnOutputSpec objects cannot be correctly serialized via
   // java.io.Serializable.  Chiefly, Avro objects including Schema and all of the Generic types
-  // are not Serializable.  By making the inputColumns and outputColumns transient and wrapping
+  // are not Serializable.  By making the columns transient and wrapping
   // them in KijiLocker objects (which handle serialization correctly),
-  // we can work around this limitation.  Thus, the following line should be the only to `columns`,
-  // because it will be null after serialization. Everything else should instead use
-  // _columns.get.
-  val _columns = KijiLocker(columns)
+  // we can work around this limitation.  Thus, the following two lines should be the only to
+  // reference `inputColumns` and `outputColumns`, because they will be null after serialization.
+  // Everything else should instead use _inputColumns.get and _outputColumns.get.
+  private val _columns = KijiLocker(columns)
 
-  setSinkFields(buildSinkFields(_columns.get, timestampField))
+  setSinkFields(buildSinkFields(columns, timestampField))
 
   /**
    * Sets up any resources required for the MapReduce job. This method is called
