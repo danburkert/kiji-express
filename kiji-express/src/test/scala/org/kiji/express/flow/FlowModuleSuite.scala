@@ -99,7 +99,7 @@ class FlowModuleSuite extends FunSuite {
     val expectedScheme = new KijiScheme(
         timeRange = All,
         timestampField = None,
-        inputColumns = Map("word" -> QualifiedColumnInputSpec("info", "word")))
+        inputColumns = Map('word -> QualifiedColumnInputSpec("info", "word")))
 
     assert(expectedScheme === input.hdfsScheme)
   }
@@ -109,7 +109,7 @@ class FlowModuleSuite extends FunSuite {
     val expectedScheme = new KijiScheme(
         Between(0L, 40L),
         None,
-        Map("word" -> QualifiedColumnInputSpec("info", "word")))
+        Map('word -> QualifiedColumnInputSpec("info", "word")))
 
     assert(expectedScheme === input.hdfsScheme)
   }
@@ -121,8 +121,8 @@ class FlowModuleSuite extends FunSuite {
           All,
           None,
           Map(
-              "word" -> QualifiedColumnInputSpec("info", "word"),
-              "title" -> QualifiedColumnInputSpec("info", "title")))
+              'word -> QualifiedColumnInputSpec("info", "word"),
+              'title -> QualifiedColumnInputSpec("info", "title")))
     }
 
     assert(expectedScheme === input.hdfsScheme)
@@ -164,7 +164,7 @@ class FlowModuleSuite extends FunSuite {
     val expectedScheme: KijiScheme = new KijiScheme(
         timeRange = All,
         timestampField = None,
-        outputColumns = Map("words" -> QualifiedColumnOutputSpec("info", "words")))
+        outputColumns = Map('words -> QualifiedColumnOutputSpec("info", "words")))
     assert(expectedScheme === output.hdfsScheme)
   }
 
@@ -173,7 +173,7 @@ class FlowModuleSuite extends FunSuite {
     val expectedScheme: KijiScheme = new KijiScheme(
         timeRange = All,
         timestampField = Some('time),
-        outputColumns = Map("words" -> QualifiedColumnOutputSpec("info", "words")))
+        outputColumns = Map('words -> QualifiedColumnOutputSpec("info", "words")))
     assert(expectedScheme === output.hdfsScheme)
   }
 }

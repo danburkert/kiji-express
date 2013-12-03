@@ -102,8 +102,8 @@ import org.kiji.schema.layout.KijiTableLayout
 class KijiScheme(
     private[express] val timeRange: TimeRange,
     private[express] val timestampField: Option[Symbol],
-    @transient private[express] val inputColumns: Map[String, ColumnInputSpec] = Map(),
-    @transient private[express] val outputColumns: Map[String, ColumnOutputSpec] = Map())
+    @transient private[express] val inputColumns: Map[Symbol, ColumnInputSpec] = Map(),
+    @transient private[express] val outputColumns: Map[Symbol, ColumnOutputSpec] = Map())
     extends Scheme[JobConf, RecordReader[KijiKey, KijiValue], OutputCollector[_, _],
         KijiSourceContext, KijiSinkContext] {
   import KijiScheme._
@@ -299,23 +299,21 @@ class KijiScheme(
     sinkCall.setContext(null)
   }
 
-  override def equals(other: Any): Boolean = {
-    other match {
-      case scheme: KijiScheme => {
-        _inputColumns.get == scheme._inputColumns.get &&
-            _outputColumns.get == scheme._outputColumns.get &&
-            timestampField == scheme.timestampField &&
-            timeRange == scheme.timeRange
-      }
-      case _ => false
+  override def equals(other: Any): Boolean = other match {
+    case scheme: KijiScheme => {
+      _inputColumns.get == scheme._inputColumns.get &&
+        _outputColumns.get == scheme._outputColumns.get &&
+        timestampField == scheme.timestampField &&
+        timeRange == scheme.timeRange
     }
+    case _ => false
   }
 
   override def hashCode(): Int = Objects.hashCode(
       _inputColumns.get,
       _outputColumns.get,
-      timeRange,
-      timestampField)
+      timestampField,
+      timeRange)
 }
 
 /**
@@ -336,7 +334,7 @@ object KijiScheme {
   /** Counter name for the number of rows successfully read. */
   private[express] val counterSuccess = "ROWS_SUCCESSFULLY_READ"
   /** Field name containing a row's [[org.kiji.schema.EntityId]]. */
-  val entityIdField: String = "entityId"
+  val entityIdField: Symbol = 'entityId
   /** Default number of qualifiers to retrieve when paging in a map type family.*/
   private val qualifierPageSize: Int = 1000
 
@@ -360,7 +358,7 @@ object KijiScheme {
    * @return a tuple containing the values contained in the specified row.
    */
   private[express] def rowToTuple(
-      columns: Map[String, ColumnInputSpec],
+      columns: Map[Symbol, ColumnInputSpec],
       fields: Fields,
       timestampField: Option[Symbol],
       row: KijiRowData,
@@ -441,16 +439,17 @@ object KijiScheme {
     fields
         .iterator()
         .asScala
-        .filter { field => field.toString != entityIdField }
-        .filter { field => field.toString != timestampField.getOrElse("") }
-        .map { field => columns(field.toString) }
-        // Build the tuple, by adding each requested value into result.
+        .map(f => Symbol(f.toString))
+        .filter(field => field != entityIdField)
+        .filter(field => timestampField.map(_ != field).getOrElse(true))
+        .map(columns)
+        // Build the tuple by adding each requested value into result.
         .foreach {
           case cf: ColumnFamilyInputSpec => rowToTupleColumnFamily(cf)
           case qc: QualifiedColumnInputSpec => rowToTupleQualifiedColumn(qc)
         }
 
-    return result
+    result
   }
 
   /**
@@ -470,7 +469,7 @@ object KijiScheme {
    * @param configuration identifying the cluster to use when building EntityIds.
    */
   private[express] def putTuple(
-      columns: Map[String, ColumnOutputSpec],
+      columns: Map[Symbol, ColumnOutputSpec],
       tableUri: KijiURI,
       kiji: Kiji,
       timestampField: Option[Symbol],
@@ -481,28 +480,27 @@ object KijiScheme {
   ) {
     // Get the entityId.
     val entityId = output
-        .getObject(entityIdField)
+        .getObject(entityIdField.name)
         .asInstanceOf[EntityId]
         .toJavaEntityId(EntityIdFactory.getFactory(layout))
 
     // Get a timestamp to write the values to, if it was specified by the user.
-    val timestamp: Long = timestampField match {
-      case Some(field) => output.getObject(field.name).asInstanceOf[Long]
-      case None => HConstants.LATEST_TIMESTAMP
+    val timestamp: Long = timestampField
+        .map(field => output.getLong(field.name))
+        .getOrElse(HConstants.LATEST_TIMESTAMP)
+
+    columns.keys
+      .foreach { field =>
+        val value = output.getObject(field.name)
+        val col: ColumnOutputSpec = columns(field)
+
+        val qualifier = col match {
+          case qc: QualifiedColumnOutputSpec => qc.qualifier
+          case cf: ColumnFamilyOutputSpec => output.getString(cf.qualifierSelector.name)
+        }
+
+        writer.put(entityId, col.family, qualifier, timestamp, col.encode(value))
     }
-
-    columns.keys.iterator
-        .foreach { field =>
-          val value = output.getObject(field)
-          val col: ColumnOutputSpec = columns(field)
-
-          val qualifier = col match {
-            case qc: QualifiedColumnOutputSpec => qc.qualifier
-            case cf: ColumnFamilyOutputSpec => output.getString(cf.qualifierSelector.name)
-          }
-
-          writer.put(entityId, col.family, qualifier, timestamp, col.encode(value))
-      }
   }
 
   /**
@@ -551,12 +549,8 @@ object KijiScheme {
     val requestBuilder: KijiDataRequestBuilder = KijiDataRequest.builder()
         .withTimeRange(timeRange.begin, timeRange.end)
 
-    columns
-        .foldLeft(requestBuilder) { (builder, column) =>
-          addColumn(builder, column)
-          builder
-        }
-        .build()
+    columns.foreach(column => addColumn(requestBuilder, column))
+    requestBuilder.build()
   }
 
   /**
@@ -565,8 +559,8 @@ object KijiScheme {
    * @param fieldNames is a list of field names.
    * @return a Fields object containing the names.
    */
-  private def toField(fieldNames: Iterable[Comparable[_]]): Fields = {
-    new Fields(fieldNames.toArray:_*)
+  private def toField(fieldNames: Iterable[Symbol]): Fields = {
+    new Fields(fieldNames.map(_.name).toArray[Comparable[String]]:_*)
   }
 
   /**
@@ -576,7 +570,7 @@ object KijiScheme {
    * @param fieldNames is a list of field names that a scheme should read.
    * @return is a collection of fields created from the names.
    */
-  private[express] def buildSourceFields(fieldNames: Iterable[String]): Fields = {
+  private[express] def buildSourceFields(fieldNames: Iterable[Symbol]): Fields = {
     toField(Set(entityIdField) ++ fieldNames)
   }
 
@@ -594,26 +588,12 @@ object KijiScheme {
    * @return a collection of fields created from the parameters.
    */
   private[express] def buildSinkFields(
-      columns: Map[String, ColumnOutputSpec],
+      columns: Map[Symbol, ColumnOutputSpec],
       timestampField: Option[Symbol]
   ): Fields = {
     toField(Set(entityIdField)
         ++ columns.keys
-        ++ extractQualifierSelectors(columns)
-        ++ timestampField.map { _.name } )
-  }
-
-  /**
-   * Extracts the names of qualifier selectors from the column requests for a Scheme.
-   *
-   * @param columns is the column requests for a Scheme.
-   * @return the names of fields that are qualifier selectors.
-   */
-  private[express] def extractQualifierSelectors(
-      columns: Map[String, ColumnOutputSpec]
-  ): Iterator[String] = {
-    columns.valuesIterator.collect {
-      case x: ColumnFamilyOutputSpec => x.qualifierSelector.name
-    }
+        ++ columns.values.collect { case x: ColumnFamilyOutputSpec => x.qualifierSelector }
+        ++ timestampField)
   }
 }

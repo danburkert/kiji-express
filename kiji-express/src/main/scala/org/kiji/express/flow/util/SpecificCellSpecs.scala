@@ -56,15 +56,9 @@ object SpecificCellSpecs {
    *     serialized map.
    * @return a serialized form of a map from column name to AvroRecord class name.
    */
-  def serializeOverrides(
-      columns: Map[String, ColumnInputSpec]
-  ): String = {
+  def serializeOverrides(columns: Map[Symbol, ColumnInputSpec]): String = {
     val serializableOverrides = collectOverrides(columns)
-        .map { entry: (KijiColumnName, Class[_ <: SpecificRecord]) =>
-          val (key, value) = entry
-
-          (key.toString, value.getName)
-        }
+        .map { case (key, value) => (key.toString, value.getName) }
         .toMap
 
     return serializeMap(serializableOverrides)
@@ -85,7 +79,7 @@ object SpecificCellSpecs {
       table: KijiTable,
       serializedMap: String
   ): Map[KijiColumnName, CellSpec] = {
-    return innerBuildCellSpecs(table.getLayout, deserializeMap(serializedMap))
+    innerBuildCellSpecs(table.getLayout, deserializeMap(serializedMap))
   }
 
   /**
@@ -118,9 +112,9 @@ object SpecificCellSpecs {
    */
   def buildCellSpecs(
       layout: KijiTableLayout,
-      columns: Map[String, ColumnInputSpec]
+      columns: Map[Symbol, ColumnInputSpec]
   ): Map[KijiColumnName, CellSpec] = {
-    return innerBuildCellSpecs(layout, collectOverrides(columns))
+    innerBuildCellSpecs(layout, collectOverrides(columns))
   }
 
   /**
@@ -134,7 +128,7 @@ object SpecificCellSpecs {
    *     reading values from that column.
    */
   private def collectOverrides(
-      columns: Map[String, ColumnInputSpec]
+      columns: Map[Symbol, ColumnInputSpec]
   ): Map[KijiColumnName, Class[_ <: SpecificRecord]] = {
     columns.values
         // Need only those columns that have specific Avro classes defined
@@ -184,12 +178,10 @@ object SpecificCellSpecs {
     props.loadFromXML(new ByteArrayInputStream(serializedMap.getBytes))
 
     return props.stringPropertyNames().asScala
-        .map {
-          case (column: String) => {
-            val kcn: KijiColumnName = new KijiColumnName(column)
-            val avroClass: Class[_ <: SpecificRecord] = avroClassForName(props.getProperty(column))
-            (kcn, avroClass)
-          }
+        .map { case (column: String) =>
+          val kcn: KijiColumnName = new KijiColumnName(column)
+          val avroClass: Class[_ <: SpecificRecord] = avroClassForName(props.getProperty(column))
+          (kcn, avroClass)
         }
         .toMap
   }
@@ -206,12 +198,10 @@ object SpecificCellSpecs {
       layout: KijiTableLayout,
       overrides: Map[KijiColumnName, Class[_ <: SpecificRecord]]
   ): Map[KijiColumnName, CellSpec] = {
-    return overrides
-        .map { entry: (KijiColumnName, Class[_ <: SpecificRecord]) =>
-          val (column, avroClass) = entry
-
-          (column, layout.getCellSpec(column).setSpecificRecord(avroClass))
-        }
+    overrides
+      .map { case (column, avroClass) =>
+        (column, layout.getCellSpec(column).setSpecificRecord(avroClass))
+      }
   }
 
   /**
@@ -220,9 +210,7 @@ object SpecificCellSpecs {
    * @param className the name of the Class to retrieve.
    * @return the AvroRecord Class for the given name.
    */
-  private def avroClassForName(
-      className: String
-  ): Class[_ <: SpecificRecord] = {
-    return Class.forName(className).asSubclass(classOf[SpecificRecord])
+  private def avroClassForName(className: String): Class[_ <: SpecificRecord] = {
+    Class.forName(className).asSubclass(classOf[SpecificRecord])
   }
 }

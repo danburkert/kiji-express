@@ -109,10 +109,10 @@ private[express] class HFileKijiScheme(
    * @param sinkCall containing the context for this source.
    */
   override def sinkPrepare(
-    flow: FlowProcess[JobConf],
-    sinkCall: SinkCall[HFileKijiSinkContext, OutputCollector[HFileKeyValue, NullWritable]]) {
-    val conf = flow.getConfigCopy()
-    val uri = conf.get(KijiConfKeys.KIJI_OUTPUT_TABLE_URI)
+      flow: FlowProcess[JobConf],
+      sinkCall: SinkCall[HFileKijiSinkContext, OutputCollector[HFileKeyValue, NullWritable]]) {
+
+    val uri = flow.getConfigCopy.get(KijiConfKeys.KIJI_OUTPUT_TABLE_URI)
     val kijiURI = KijiURI.newBuilder(uri).build()
     val kiji = Kiji.Factory.open(kijiURI)
 
@@ -138,26 +138,24 @@ private[express] class HFileKijiScheme(
     // Write the tuple out.
     val output: TupleEntry = sinkCall.getOutgoingEntry
 
-    val HFileKijiSinkContext(kiji, uri, layout, colTranslator) = sinkCall.getContext()
+    val HFileKijiSinkContext(kiji, uri, layout, colTranslator) = sinkCall.getContext
     val eidFactory = EntityIdFactory.getFactory(layout)
 
-    val encoderProvider = new CellEncoderProvider(uri, layout, kiji.getSchemaTable(),
+    val encoderProvider = new CellEncoderProvider(uri, layout, kiji.getSchemaTable,
         DefaultKijiCellEncoderFactory.get())
 
     outputCells(output, timestampField, _columns.get) { key: HFileCell =>
       // Convert cell to an HFileKeyValue
       val kijiColumn = new KijiColumnName(key.colRequest.family, key.colRequest.qualifier)
       val hbaseColumn = colTranslator.toHBaseColumnName(kijiColumn)
-      val cellSpec = layout.getCellSpec(kijiColumn)
-        .setSchemaTable(kiji.getSchemaTable())
 
-      val encoder = encoderProvider.getEncoder(kijiColumn.getFamily(), kijiColumn.getQualifier())
+      val encoder = encoderProvider.getEncoder(kijiColumn.getFamily, kijiColumn.getQualifier)
       val hFileKeyValue = new HFileKeyValue(
-        key.entityId.toJavaEntityId(eidFactory).getHBaseRowKey(),
-        hbaseColumn.getFamily(), hbaseColumn.getQualifier(), key.timestamp,
+        key.entityId.toJavaEntityId(eidFactory).getHBaseRowKey,
+        hbaseColumn.getFamily, hbaseColumn.getQualifier, key.timestamp,
         encoder.encode(key.datum))
 
-      sinkCall.getOutput().collect(hFileKeyValue, NullWritable.get())
+      sinkCall.getOutput.collect(hFileKeyValue, NullWritable.get())
     }
   }
 
@@ -172,7 +170,7 @@ private[express] class HFileKijiScheme(
     flow: FlowProcess[JobConf],
     sinkCall: SinkCall[HFileKijiSinkContext, OutputCollector[HFileKeyValue, NullWritable]]) {
 
-    val HFileKijiSinkContext(kiji, _, _, _) = sinkCall.getContext()
+    val HFileKijiSinkContext(kiji, _, _, _) = sinkCall.getContext
 
     kiji.release()
     sinkCall.setContext(null)
@@ -188,26 +186,21 @@ private[express] class HFileKijiScheme(
    * @param conf to which we will add our KijiDataRequest.
    */
   override def sinkConfInit(
-    flow: FlowProcess[JobConf],
-    tap: Tap[JobConf, RecordReader[_, _], OutputCollector[HFileKeyValue, NullWritable]],
-    conf: JobConf) {
+      flow: FlowProcess[JobConf],
+      tap: Tap[JobConf, RecordReader[_, _], OutputCollector[HFileKeyValue, NullWritable]],
+      conf: JobConf) {
   }
 
-
-  override def equals(other: Any): Boolean = {
-    other match {
-      case scheme: HFileKijiScheme => {
-        _columns.get == scheme._columns.get &&
-          timestampField == scheme.timestampField &&
-          timeRange == scheme.timeRange
-      }
-      case _ => false
+  override def equals(obj: Any): Boolean = obj match {
+    case other: HFileKijiScheme => {
+      _columns.get == other._columns.get &&
+        timestampField == other.timestampField &&
+        timeRange == other.timeRange
     }
+    case _ => false
   }
 
-
-  override def hashCode(): Int =
-    Objects.hashCode(_columns.get, timeRange, timestampField, loggingInterval: java.lang.Long)
+  override def hashCode: Int = Objects.hashCode(_columns.get, timestampField, timeRange)
 }
 
 /**
@@ -233,7 +226,7 @@ private[express] final class SemiNullScheme extends HFileKijiScheme.HFileScheme 
     val output: TupleEntry = sinkCall.getOutgoingEntry
 
     val hFileKeyValue = output.getObject(0).asInstanceOf[HFileKeyValue]
-    sinkCall.getOutput().collect(hFileKeyValue, NullWritable.get())
+    sinkCall.getOutput.collect(hFileKeyValue, NullWritable.get())
   }
 }
 
@@ -275,31 +268,24 @@ object HFileKijiScheme {
 
   private[express] def outputCells(output: TupleEntry,
                                    timestampField: Option[Symbol],
-                                   columns: Map[String, ColumnOutputSpec])(
+                                   columns: Map[Symbol, ColumnOutputSpec])(
                                      cellHandler: HFileCell => Unit) {
 
     // Get a timestamp to write the values to, if it was specified by the user.
-    val timestamp: Long = timestampField match {
-      case Some(field) => output.getObject(field.name).asInstanceOf[Long]
-      case None        => HConstants.LATEST_TIMESTAMP
-    }
+    val timestamp: Long = timestampField
+        .map(field => output.getLong(field.name))
+        .getOrElse(HConstants.LATEST_TIMESTAMP)
 
-    // Get the entityId.
-    val entityId: EntityId =
-      output.getObject(KijiScheme.entityIdField).asInstanceOf[EntityId]
+    val entityId: EntityId = output.getObject(KijiScheme.entityIdField.name).asInstanceOf[EntityId]
 
-    columns.foreach(kv => {
-      val (fieldName, colRequest) = kv
-      val colValue = output.getObject(fieldName)
-      val newColRequest = colRequest match {
-        case cf @ ColumnFamilyOutputSpec(family, qualField, schemaId) => {
-          val qualifier = output.getString(qualField.name)
-          QualifiedColumnOutputSpec(family, qualifier)
-        }
+    columns.foreach { case (field, colSpec) =>
+      val colValue = output.getObject(field.name)
+      val newColRequest = colSpec match {
+        case ColumnFamilyOutputSpec(family, qualField, _) =>
+          QualifiedColumnOutputSpec(family, output.getString(qualField.name))
         case qc @ QualifiedColumnOutputSpec(_, _, _) => qc
       }
-      val cell = HFileCell(entityId, newColRequest, timestamp, colValue)
-      cellHandler(cell)
-    })
+      cellHandler(HFileCell(entityId, newColRequest, timestamp, colValue))
+    }
   }
 }

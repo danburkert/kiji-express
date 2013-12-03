@@ -83,11 +83,11 @@ class EntityIdSuite extends KijiSuite {
   test("Create an Express EntityId from a Kiji EntityId and vice versa in a hashed table.") {
     val origKijiEid = hashedEidFactory.getEntityId("test")
 
-    val expressEid = HashedEntityId(origKijiEid.getHBaseRowKey())
+    val expressEid = HashedEntityId(origKijiEid.getHBaseRowKey)
     val expressToKijiEid = expressEid.toJavaEntityId(hashedEidFactory)
 
     val recreate = EntityId.fromJavaEntityId(expressToKijiEid)
-    assert(recreate.components.equals(List(origKijiEid.getHBaseRowKey())))
+    assert(recreate.components.equals(List(origKijiEid.getHBaseRowKey)))
   }
 
   test("Creating an EntityId from a Hashed table fails if there is more than one component.") {
@@ -180,7 +180,7 @@ class EntityIdSuite extends KijiSuite {
   test("Runs a job that joins two pipes, on user-created and from a table (formatted) EntityIds.") {
     // URI of the Kiji table to use.
     val uri: String = doAndRelease(makeTestKijiTable(avroLayout)) { table: KijiTable =>
-      table.getURI().toString()
+      table.getURI.toString
     }
 
     // Create input from Kiji table.
@@ -202,13 +202,12 @@ class EntityIdSuite extends KijiSuite {
       .arg("input", uri)
       .arg("side-input", "sideInputFile")
       .arg("output", "outputFile")
-      .source(KijiInput(uri, ("animals" -> 'animals)), joinKijiInput)
+      .source(KijiInput(uri, "animals" -> 'animals), joinKijiInput)
       .source(TextLine("sideInputFile"), sideInput)
       .sink(Tsv("outputFile"))(validateTest)
 
     // Run the test in local mode.
     jobTest.run.finish
-
 
     // Run the test in hadoop mode.
     jobTest.runHadoop.finish
@@ -217,7 +216,7 @@ class EntityIdSuite extends KijiSuite {
   test("Runs a job that joins two pipes, on EntityIds from a table (hashed), in local mode.") {
     // URI of the hashed Kiji table to use.
     val uri: String = doAndRelease(makeTestKijiTable(simpleLayout)) { table: KijiTable =>
-      table.getURI().toString()
+      table.getURI.toString
     }
 
     // Create input from hashed Kiji table.
@@ -230,8 +229,7 @@ class EntityIdSuite extends KijiSuite {
     // Create input from hashed Kiji table.
     val joinInput2: List[(EntityId, Seq[FlowCell[String]])] = List(
       (EntityId("0row"), slice("family:column2", (0L, "0 boop"))),
-      (EntityId("2row"), slice("family:column2", (1L, "1 cat")))
-      )
+      (EntityId("2row"), slice("family:column2", (1L, "1 cat"))))
 
     // Validate output.
     def validateTest(outputBuffer: Buffer[Tuple1[String]]): Unit = {
@@ -243,8 +241,8 @@ class EntityIdSuite extends KijiSuite {
       .arg("input1", uri)
       .arg("input2", uri)
       .arg("output", "outputFile")
-      .source(KijiInput(uri, ("family:column1" -> 'animals)), joinInput1)
-      .source(KijiInput(uri, ("family:column2" -> 'slice)), joinInput2)
+      .source(KijiInput(uri, "family:column1" -> 'animals), joinInput1)
+      .source(KijiInput(uri, "family:column2" -> 'slice), joinInput2)
       .sink(Tsv("outputFile"))(validateTest)
 
     // Run the test in local mode.
@@ -254,7 +252,7 @@ class EntityIdSuite extends KijiSuite {
   test("Runs a job that joins two pipes, on EntityIds from a table (hashed), in hadoop mode.") {
     // URI of the hashed Kiji table to use.
     val uri: String = doAndRelease(makeTestKijiTable(simpleLayout)) { table: KijiTable =>
-      table.getURI().toString()
+      table.getURI.toString
     }
 
     // Create input from hashed Kiji table.
@@ -278,8 +276,8 @@ class EntityIdSuite extends KijiSuite {
       .arg("input1", uri)
       .arg("input2", uri)
       .arg("output", "outputFile")
-      .source(KijiInput(uri, ("family:column1" -> 'animals)), joinInput1)
-      .source(KijiInput(uri, ("family:column2" -> 'slice)), joinInput2)
+      .source(KijiInput(uri, "family:column1" -> 'animals), joinInput1)
+      .source(KijiInput(uri, "family:column2" -> 'slice), joinInput2)
       .sink(Tsv("outputFile"))(validateTest)
 
     // Run the test in hadoop mode.
@@ -289,7 +287,7 @@ class EntityIdSuite extends KijiSuite {
   test("A job that joins two pipes, on EntityIds from a table (formatted) in local mode.") {
     // URI of a formatted Kiji table to use.
     val uri: String = doAndRelease(makeTestKijiTable(avroLayout)) { table: KijiTable =>
-      table.getURI().toString()
+      table.getURI.toString
     }
 
     // Create input from formatted Kiji table.
@@ -313,8 +311,8 @@ class EntityIdSuite extends KijiSuite {
       .arg("input1", uri)
       .arg("input2", uri)
       .arg("output", "outputFile")
-      .source(KijiInput(uri, ("searches" -> 'searches)), joinInput1)
-      .source(KijiInput(uri, ("animals" -> 'animals)), joinInput2)
+      .source(KijiInput(uri, "searches" -> 'searches), joinInput1)
+      .source(KijiInput(uri, "animals" -> 'animals), joinInput2)
       .sink(Tsv("outputFile"))(validateTest)
 
     // Run the test in local mode.
@@ -324,7 +322,7 @@ class EntityIdSuite extends KijiSuite {
   test("A job that joins two pipes, on EntityIds from a table (formatted) in hadoop mode.") {
     // URI of a formatted Kiji table to use.
     val uri: String = doAndRelease(makeTestKijiTable(avroLayout)) { table: KijiTable =>
-      table.getURI().toString()
+      table.getURI.toString
     }
 
     // Create input from formatted Kiji table.
@@ -348,8 +346,8 @@ class EntityIdSuite extends KijiSuite {
       .arg("input1", uri)
       .arg("input2", uri)
       .arg("output", "outputFile")
-      .source(KijiInput(uri, ("searches" -> 'searches)), joinInput1)
-      .source(KijiInput(uri, ("animals" -> 'animals)), joinInput2)
+      .source(KijiInput(uri, "searches" -> 'searches), joinInput1)
+      .source(KijiInput(uri, "animals" -> 'animals), joinInput2)
       .sink(Tsv("outputFile"))(validateTest)
 
     // Run the test in hadoop mode.
@@ -409,7 +407,7 @@ object EntityIdSuite {
       .map('line -> 'entityId) { line: String => EntityId(line) }
       .project('entityId)
 
-    KijiInput(args("input"), ("family:column1" -> 'slice))
+    KijiInput(args("input"), "family:column1" -> 'slice)
       .map('slice -> 'terms) { slice: Seq[FlowCell[CharSequence]] => slice.head.datum.toString }
       .joinWithSmaller('entityId -> 'entityId, sidePipe)
       .write(Tsv(args("output")))
@@ -422,12 +420,12 @@ object EntityIdSuite {
    *     Kiji table, and "output", which specifies the path to a text file.
    */
   class JoinHashedEntityIdsJob(args: Args) extends KijiJob(args) {
-    val pipe1 = KijiInput(args("input1"), ("family:column1" -> 'animals))
+    val pipe1 = KijiInput(args("input1"), "family:column1" -> 'animals)
 
-    KijiInput(args("input2"), ("family:column2" -> 'slice))
+    KijiInput(args("input2"), "family:column2" -> 'slice)
       .map('animals -> 'animal) { slice: Seq[FlowCell[CharSequence]] => slice.head.datum.toString }
 
-    KijiInput(args("input2"), ("family:column2" -> 'slice))
+    KijiInput(args("input2"), "family:column2" -> 'slice)
       .map('slice -> 'terms) { slice:Seq[FlowCell[CharSequence]] => slice.head.datum.toString }
       .joinWithSmaller('entityId -> 'entityId, pipe1)
       .write(Tsv(args("output")))
@@ -440,10 +438,11 @@ object EntityIdSuite {
    *     Kiji table, and "output", which specifies the path to a text file.
    */
   class JoinFormattedEntityIdsJob(args: Args) extends KijiJob(args) {
-    val pipe1 = KijiInput(args("input1"), ("searches" -> 'searches))
+    val pipe1 = KijiInput(args("input1"), "searches" -> 'searches)
+      .debug
       .map('searches -> 'term) { slice:Seq[FlowCell[Int]] => slice.head.datum }
 
-    KijiInput(args("input2"), ("animals" -> 'animals))
+    KijiInput(args("input2"), "animals" -> 'animals)
       .map('animals -> 'animal) { slice: Seq[FlowCell[CharSequence]] => slice.head.datum.toString }
       .joinWithSmaller('entityId -> 'entityId, pipe1)
       .write(Tsv(args("output")))

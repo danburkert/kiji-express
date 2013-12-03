@@ -78,14 +78,13 @@ class HFileKijiSource private[express] (
     val loggingInterval: Long,
     val columns: Map[Symbol, ColumnOutputSpec]
 ) extends Source {
-  import org.kiji.express.flow.KijiSource._
 
   /**
    * Creates a Scheme that writes to/reads from a Kiji table for usage with
    * the hadoop runner.
    */
   override val hdfsScheme: KijiScheme.HadoopScheme =
-    new HFileKijiScheme(timeRange, timestampField, loggingInterval, convertKeysToStrings(columns))
+    new HFileKijiScheme(timeRange, timestampField, loggingInterval, columns)
       // This cast is required due to Scheme being defined with invariant type parameters.
       .asInstanceOf[KijiScheme.HadoopScheme]
 
@@ -97,25 +96,19 @@ class HFileKijiSource private[express] (
    * @param mode Specifies which job runner/flow planner is being used.
    * @return A tap to use for this data source.
    */
-  override def createTap(readOrWrite: AccessMode)(implicit mode: Mode): Tap[_, _, _] = {
-    val tap: Tap[_, _, _] = mode match {
-      // Production taps.
-      case Hdfs(_, _) => new HFileKijiTap(tableAddress, hdfsScheme, hFileOutput)
+  override def createTap(readOrWrite: AccessMode)(implicit mode: Mode): Tap[_, _, _] =  mode match {
+    // Production taps.
+    case Hdfs(_, _) => new HFileKijiTap(tableAddress, hdfsScheme, hFileOutput)
 
-      // Test taps.
-      case HadoopTest(conf, buffers) => {
-        readOrWrite match {
-          case Write => {
-            new HFileKijiTap(tableAddress, hdfsScheme, hFileOutput)
-          }
-          case _ => throw new UnsupportedOperationException("Read unsupported")
-        }
+    // Test taps.
+    case HadoopTest(conf, buffers) => {
+      readOrWrite match {
+        case Write => new HFileKijiTap(tableAddress, hdfsScheme, hFileOutput)
+        case _ => throw new UnsupportedOperationException("Read unsupported")
       }
-      // Delegate any other tap types to Source's default behaviour.
-      case _ => super.createTap(readOrWrite)(mode)
     }
-
-    return tap
+    // Delegate any other tap types to Source's default behaviour.
+    case _ => super.createTap(readOrWrite)(mode)
   }
 
   override def toString: String = {
@@ -129,17 +122,14 @@ class HFileKijiSource private[express] (
         .toString
   }
 
-  override def equals(other: Any): Boolean = {
-    other match {
-      case source: HFileKijiSource => {
-        Objects.equal(tableAddress, source.tableAddress) &&
-        Objects.equal(hFileOutput, source.hFileOutput) &&
-        Objects.equal(columns, source.columns) &&
-        Objects.equal(timestampField, source.timestampField) &&
-        Objects.equal(timeRange, source.timeRange)
-      }
-      case _ => false
-    }
+  override def equals(obj: Any): Boolean = obj match {
+    case other: HFileKijiSource =>
+      tableAddress == other.tableAddress &&
+          hFileOutput == other.hFileOutput &&
+          columns == other.columns &&
+          timestampField == other.timestampField &&
+          timeRange == other.timeRange
+    case _ => false
   }
 
   override def hashCode(): Int =

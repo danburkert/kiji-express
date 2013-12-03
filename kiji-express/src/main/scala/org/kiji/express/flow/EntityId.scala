@@ -20,6 +20,7 @@
 package org.kiji.express.flow
 
 import java.lang.IllegalStateException
+import java.util.Arrays
 
 import scala.collection.JavaConverters.asScalaBufferConverter
 import scala.collection.JavaConverters.seqAsJavaListConverter
@@ -249,16 +250,15 @@ object EntityId {
   private[express] case class HashedEntityId(encoded: Array[Byte])
       extends EntityId {
 
-    /** Lazily create a string encoding of this byte array for hash code purposes. **/
-    @transient
-    private lazy val stringEncoding = new String(encoded)
-
     /** Lazily create a memoized list of components for the components method. **/
     @transient
     override lazy val components: Seq[AnyRef] = List(encoded)
 
-    override def hashCode(): Int = {
-      stringEncoding.hashCode
+    override def hashCode: Int = Arrays.hashCode(encoded)
+
+    override def equals(obj: Any): Boolean = obj match {
+      case other: Array[Byte] => Arrays.equals(encoded, other)
+      case _ => false
     }
 
     override def toJavaEntityId(eidFactory: EntityIdFactory): JEntityId = {
@@ -284,10 +284,6 @@ object EntityId {
 
     override def toJavaEntityId(eidFactory: EntityIdFactory): JEntityId = {
       eidFactory.getEntityId(components.asJava)
-    }
-
-    override def hashCode(): Int = {
-      components.hashCode
     }
   }
 }

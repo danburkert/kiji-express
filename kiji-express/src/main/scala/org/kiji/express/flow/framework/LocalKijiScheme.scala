@@ -141,8 +141,8 @@ private[express] case class OutputContext(
 private[express] class LocalKijiScheme(
     private[express] val timeRange: TimeRange,
     private[express] val timestampField: Option[Symbol],
-    private[express] val icolumns: Map[String, ColumnInputSpec] = Map(),
-    private[express] val ocolumns: Map[String, ColumnOutputSpec] = Map())
+    private[express] val icolumns: Map[Symbol, ColumnInputSpec] = Map(),
+    private[express] val ocolumns: Map[Symbol, ColumnOutputSpec] = Map())
     extends Scheme[Properties, InputStream, OutputStream, InputContext, OutputContext] {
   private val logger: Logger = LoggerFactory.getLogger(classOf[LocalKijiScheme])
 

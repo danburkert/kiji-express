@@ -52,8 +52,8 @@ class KijiSchemeSuite extends KijiSuite {
     val reader = table.getReaderFactory.openTableReader(GenericCellSpecs(table))
 
     // Set up the columns and fields.
-    val columnsOutput = Map("columnSymbol" -> QualifiedColumnOutputSpec("family:column3"))
-    val columnsInput = Map("columnSymbol" -> ColumnInputSpec("family:column3"))
+    val columnsOutput = Map('columnSymbol -> QualifiedColumnOutputSpec("family:column3"))
+    val columnsInput = Map('columnSymbol -> ColumnInputSpec("family:column3"))
     val sourceFields = KijiScheme.buildSourceFields(columnsOutput.keys)
 
     // Create a dummy record with an entity ID to put in the table.

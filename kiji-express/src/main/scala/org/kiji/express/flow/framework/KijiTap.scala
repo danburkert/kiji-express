@@ -179,7 +179,7 @@ class KijiTap(
    * @throws UnsupportedOperationException always.
    */
   override def createResource(conf: JobConf): Boolean = {
-    throw new UnsupportedOperationException("KijiTap does not support creating tables for you.")
+    throw new UnsupportedOperationException("KijiTap does not support creating tables.")
   }
 
   /**
@@ -192,7 +192,7 @@ class KijiTap(
    * @throws UnsupportedOperationException always.
    */
   override def deleteResource(conf: JobConf): Boolean = {
-    throw new UnsupportedOperationException("KijiTap does not support deleting tables for you.")
+    throw new UnsupportedOperationException("KijiTap does not support deleting tables.")
   }
 
   /**
@@ -251,8 +251,8 @@ object KijiTap {
    */
   private[express] def validate(
       kijiUri: KijiURI,
-      inputColumns: Map[String, ColumnInputSpec],
-      outputColumns: Map[String, ColumnOutputSpec],
+      inputColumns: Map[Symbol, ColumnInputSpec],
+      outputColumns: Map[Symbol, ColumnOutputSpec],
       conf: Configuration) {
     // Try to open the Kiji instance.
     val kiji: Kiji =
@@ -286,7 +286,7 @@ object KijiTap {
 
     val nonExistentColumnErrors = (inputColumnNames ++ outputColumnNames)
         // Filter for columns that don't exist
-        .filter( { case colname => !tableLayout.exists(colname) } )
+        .filter(colname => !tableLayout.exists(colname))
         .map { column =>
             "One or more columns does not exist in the table %s: %s\n".format(table.getName, column)
         }
@@ -296,7 +296,7 @@ object KijiTap {
     // Combine all error strings.
     if (!allErrors.isEmpty) {
       throw new InvalidKijiTapException(
-          "Errors found in validating Tap: %s".format(allErrors.mkString(", \n"))
+          "Errors found in validating Tap: %s".format(allErrors.mkString(",\n"))
       )
     }
   }

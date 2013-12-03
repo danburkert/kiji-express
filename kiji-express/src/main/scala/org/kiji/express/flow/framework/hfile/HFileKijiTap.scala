@@ -59,15 +59,15 @@ import org.kiji.mapreduce.output.framework.KijiHFileOutputFormat
 @ApiAudience.Framework
 @ApiStability.Experimental
 private[express] class HFileKijiTap(
-  private val tableUri: String,
-  private val scheme: KijiScheme.HadoopScheme,
-  private val hFileOutput: String)
-    extends Tap[JobConf, RecordReader[KijiKey, KijiValue], OutputCollector[_, _]](
+  tableUri: String,
+  scheme: KijiScheme.HadoopScheme,
+  hFileOutput: String)
+extends Tap[JobConf, RecordReader[KijiKey, KijiValue], OutputCollector[_, _]](
         scheme.asInstanceOf[Scheme[JobConf, RecordReader[KijiKey, KijiValue],
             OutputCollector[_, _], _, _]]) {
 
   /** Unique identifier for this KijiTap instance. */
-  private val id: String = UUID.randomUUID().toString()
+  private val id: String = UUID.randomUUID().toString
 
   /**
    * Provides a string representing the resource this `Tap` instance represents.
@@ -76,7 +76,7 @@ private[express] class HFileKijiTap(
    *     the Kiji table being used by this tap to allow jobs that read from or write to the same
    *     table to have different data request options.
    */
-  override def getIdentifier(): String = id
+  override def getIdentifier: String = id
 
 
   /**
@@ -103,12 +103,12 @@ private[express] class HFileKijiTap(
   override def openForWrite(
       flow: FlowProcess[JobConf],
       outputCollector: OutputCollector[_, _]): TupleEntryCollector = {
-
     new HadoopTupleEntrySchemeCollector(
-        flow,
-        this.asInstanceOf[Tap[JobConf, RecordReader[_, _], OutputCollector[_, _]]],
-        outputCollector)
+      flow,
+      this.asInstanceOf[Tap[JobConf, RecordReader[_, _], OutputCollector[_, _]]],
+      outputCollector)
   }
+
   /**
    * Builds any resources required to read from or write to a Kiji table.
    *
@@ -118,9 +118,8 @@ private[express] class HFileKijiTap(
    * @return true if required resources were created successfully.
    * @throws UnsupportedOperationException always.
    */
-  override def createResource(conf: JobConf): Boolean = {
-    throw new UnsupportedOperationException("KijiTap does not support creating tables for you.")
-  }
+  override def createResource(conf: JobConf): Boolean =
+    throw new UnsupportedOperationException("HFileKijiTap does not support creating tables.")
 
   /**
    * Deletes any unnecessary resources used to read from or write to a Kiji table.
@@ -131,9 +130,8 @@ private[express] class HFileKijiTap(
    * @return true if superfluous resources were deleted successfully.
    * @throws UnsupportedOperationException always.
    */
-  override def deleteResource(conf: JobConf): Boolean = {
-    throw new UnsupportedOperationException("KijiTap does not support deleting tables for you.")
-  }
+  override def deleteResource(conf: JobConf): Boolean =
+    throw new UnsupportedOperationException("HFileKijiTap does not support deleting tables.")
 
   /**
    * Gets the time that the target Kiji table was last modified.
@@ -151,9 +149,7 @@ private[express] class HFileKijiTap(
    * @param conf containing settings for this flow.
    * @return true if the target Kiji table exists.
    */
-  override def resourceExists(conf: JobConf): Boolean = {
-    true
-  }
+  override def resourceExists(conf: JobConf): Boolean = true
 
   /**
    * Sets any configuration options that are required for running a MapReduce job
