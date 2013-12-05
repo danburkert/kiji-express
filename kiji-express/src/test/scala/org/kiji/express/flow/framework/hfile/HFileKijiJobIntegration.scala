@@ -25,7 +25,6 @@ import com.twitter.scalding.Args
 import com.twitter.scalding.TextLine
 import com.twitter.scalding.Tool
 import com.twitter.scalding.Tsv
-import org.apache.avro.Schema
 import org.apache.commons.io.FileUtils
 import org.apache.hadoop.fs.Path
 import org.junit.After
@@ -33,9 +32,7 @@ import org.junit.Assert
 import org.junit.Before
 import org.junit.Test
 
-import org.kiji.express.flow.ColumnFamilyOutputSpec
-import org.kiji.express.flow.QualifiedColumnOutputSpec
-import org.kiji.express.flow.EntityId
+import org.kiji.express.flow.{KijiJob, ColumnFamilyOutputSpec, EntityId}
 import org.kiji.express.flow.util.Resources
 import org.kiji.mapreduce.HFileLoader
 import org.kiji.schema.Kiji
@@ -45,7 +42,7 @@ import org.kiji.schema.KijiTable
 import org.kiji.schema.layout.KijiTableLayouts
 import org.kiji.schema.testutil.AbstractKijiIntegrationTest
 
-class HFileKijiJobIntegration extends AbstractKijiIntegrationTest {
+class KijiJobIntegration extends AbstractKijiIntegrationTest {
 
   private var mKiji: Kiji = null
 
@@ -208,7 +205,7 @@ class HFileKijiJobIntegration extends AbstractKijiIntegrationTest {
   }
 }
 
-class SimpleAverageJob(args: Args) extends HFileKijiJob(args) {
+class SimpleAverageJob(args: Args) extends KijiJob(args) {
 
   // Parse arguments
   val inputUri: String = args("input")
@@ -227,7 +224,7 @@ class SimpleAverageJob(args: Args) extends HFileKijiJob(args) {
     .write(HFileKijiOutput(outputUri, hFileOutput, ('numViews -> "family:double_column")))
 }
 
-class SimpleLoaderJob(args: Args) extends HFileKijiJob(args) {
+class SimpleLoaderJob(args: Args) extends KijiJob(args) {
 
   // Parse arguments
   val inputUri: String = args("input")
@@ -246,7 +243,7 @@ class SimpleLoaderJob(args: Args) extends HFileKijiJob(args) {
     .write(HFileKijiOutput(outputUri, hFileOutput, 'ts, ('numViews -> "family:double_column")))
 }
 
-class SimpleLoaderMapTypeFamilyJob(args: Args) extends HFileKijiJob(args) {
+class SimpleLoaderMapTypeFamilyJob(args: Args) extends KijiJob(args) {
 
   // Parse arguments
   val inputUri: String = args("input")
@@ -269,7 +266,7 @@ class SimpleLoaderMapTypeFamilyJob(args: Args) extends HFileKijiJob(args) {
     .write(HFileKijiOutput(outputUri, hFileOutput, 'ts, outputCols))
 }
 
-class SimpleLoaderMultiOutputJob(args: Args) extends HFileKijiJob(args) {
+class SimpleLoaderMultiOutputJob(args: Args) extends KijiJob(args) {
 
   // Parse arguments
   val inputUri: String = args("input")

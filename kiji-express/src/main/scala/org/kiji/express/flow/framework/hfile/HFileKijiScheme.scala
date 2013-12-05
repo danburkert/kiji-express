@@ -22,7 +22,6 @@ package org.kiji.express.flow.framework.hfile
 import cascading.flow.FlowProcess
 import cascading.scheme.NullScheme
 import cascading.scheme.SinkCall
-import cascading.tap.Tap
 import cascading.tuple.TupleEntry
 import com.google.common.base.Objects
 import org.apache.hadoop.hbase.HConstants
@@ -84,7 +83,7 @@ private[express] class HFileKijiScheme(
   private[express] val timeRange: TimeRange,
   private[express] val timestampField: Option[Symbol],
   private[express] val loggingInterval: Long,
-  @transient private[express] val columns: Map[String, ColumnOutputSpec])
+  @transient columns: Map[Symbol, ColumnOutputSpec])
     extends HFileKijiScheme.HFileScheme {
 
   import KijiScheme._
@@ -97,9 +96,9 @@ private[express] class HFileKijiScheme(
   // we can work around this limitation.  Thus, the following two lines should be the only to
   // reference `inputColumns` and `outputColumns`, because they will be null after serialization.
   // Everything else should instead use _inputColumns.get and _outputColumns.get.
-  private val _columns = KijiLocker(columns)
+  private[express] val _columns = KijiLocker(columns)
 
-  setSinkFields(buildSinkFields(columns, timestampField))
+  setSinkFields(buildSinkFields(_columns.get, timestampField))
 
   /**
    * Sets up any resources required for the MapReduce job. This method is called
@@ -174,21 +173,6 @@ private[express] class HFileKijiScheme(
 
     kiji.release()
     sinkCall.setContext(null)
-  }
-
-  /**
-   * Sets any configuration options that are required for running a MapReduce job
-   * that writes to a Kiji table. This method gets called on the client machine
-   * during job setup.
-   *
-   * @param flow being built.
-   * @param tap that is being used with this scheme.
-   * @param conf to which we will add our KijiDataRequest.
-   */
-  override def sinkConfInit(
-      flow: FlowProcess[JobConf],
-      tap: Tap[JobConf, RecordReader[_, _], OutputCollector[HFileKeyValue, NullWritable]],
-      conf: JobConf) {
   }
 
   override def equals(obj: Any): Boolean = obj match {

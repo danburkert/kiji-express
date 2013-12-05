@@ -21,21 +21,19 @@ package org.kiji.express.flow.framework.hfile
 
 import java.io.InputStream
 
+import com.twitter.scalding.Args
 import com.twitter.scalding.Hdfs
 import com.twitter.scalding.Mode
+import org.apache.avro.Schema
 import org.apache.commons.io.FileUtils
 import org.apache.commons.io.IOUtils
-import org.apache.avro.Schema
 import org.apache.hadoop.mapred.JobConf
+import org.junit.Assert
 import org.junit.Test
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
-import com.twitter.scalding.Args
-import org.junit.Assert
 
-import org.kiji.express.flow.QualifiedColumnOutputSpec
-import org.kiji.express.flow.ColumnInputSpec
-import org.kiji.express.flow.KijiInput
+import org.kiji.express.flow.{KijiJob, QualifiedColumnOutputSpec, ColumnInputSpec, KijiInput}
 import org.kiji.schema.Kiji
 import org.kiji.schema.KijiURI
 import org.kiji.schema.shell.api.Client
@@ -43,7 +41,7 @@ import org.kiji.schema.testutil.AbstractKijiIntegrationTest
 import org.kiji.schema.util.InstanceBuilder
 
 /**
- * Integration tests with schemas specified for column requests, in an HFileKijiJob.
+ * Integration tests with schemas specified for column requests, in an KijiJob.
  */
 class IntegrationTestKijiKryoHFileJob extends AbstractKijiIntegrationTest {
   private final val Log: Logger = LoggerFactory.getLogger(classOf[IntegrationTestKijiKryoHFileJob])
@@ -113,7 +111,7 @@ class IntegrationTestKijiKryoHFileJob extends AbstractKijiIntegrationTest {
           .withQualifier("email").withValue("email2")
           .build()
 
-        class TestHFileOutputJob(args: Args) extends HFileKijiJob(args) {
+        class TestHFileOutputJob(args: Args) extends KijiJob(args) {
           KijiInput(
             table.getURI.toString,
             Map(ColumnInputSpec("info:email", schema = Schema.create(Schema.Type.STRING))

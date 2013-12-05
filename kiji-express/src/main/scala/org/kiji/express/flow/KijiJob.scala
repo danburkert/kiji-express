@@ -111,16 +111,14 @@ class KijiJob(args: Args = Args(Nil))
     if (!hfileSinks.isEmpty) {
       val tailsMap = flowDef.getTails.asScala.map((p: Pipe) => p.getName -> p).toMap
       val flow: Flow[JobConf] = super.buildFlow.asInstanceOf[Flow[JobConf]]
-      flow.writeDOT("pre-flow.dot")
-      flow.writeStepsDOT("pre-steps.dot")
 
       for {
         flowStep <- flow.getFlowSteps.asScala
         sink <- flowStep.getSinks.asScala
         name <- flowStep.getSinkName(sink).asScala if hfileSinks(name)
       } {
-        val tail = tailsMap(name)
         if (flowStep.getConfig.getNumReduceTasks > 0) {
+          val tail = tailsMap(name)
           tails.remove(tail)
           flowDef.addTail(new Pipe(name, new Checkpoint(tail.getPrevious.head)))
         }

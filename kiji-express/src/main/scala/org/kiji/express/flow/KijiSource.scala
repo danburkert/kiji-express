@@ -259,17 +259,6 @@ final class KijiSource private[express] (
 @ApiStability.Experimental
 private[express] object KijiSource {
   /**
-   * Convert scala columns definition into its corresponding java variety.
-   *
-   * @param columnMap Mapping from field name to Kiji column name.
-   * @return Java map from field name to column definition.
-   */
-  private[express] def convertKeysToStrings[T <: Any](columnMap: Map[Symbol, T])
-      : Map[String, T] = {
-    columnMap.map { case (symbol, column) => (symbol.name, column) }
-  }
-
-  /**
    * Takes a buffer containing rows and writes them to the table at the specified uri.
    *
    * @param tableUri of the table to populate.
