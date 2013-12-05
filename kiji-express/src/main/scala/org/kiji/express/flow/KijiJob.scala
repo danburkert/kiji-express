@@ -92,8 +92,6 @@ class KijiJob(args: Args = Args(Nil))
 
   override def buildFlow(implicit mode : Mode): Flow[_] = {
     val flow = super.buildFlow(mode)
-    flow.writeDOT("target/flow.dot")
-    flow.writeStepsDOT("target/steps.dot")
     flow
   }
 

@@ -22,10 +22,7 @@ package org.kiji.express.flow
 import scala.collection.mutable
 
 import cascading.tuple.Fields
-import com.twitter.scalding.Args
-import com.twitter.scalding.JobTest
-import com.twitter.scalding.TextLine
-import com.twitter.scalding.Tsv
+import com.twitter.scalding.{NullSource, Mode, IterableSource, Args, JobTest, TextLine, Tsv}
 import org.apache.avro.generic.GenericRecord
 import org.apache.avro.generic.GenericRecordBuilder
 import org.apache.avro.specific.SpecificRecord
@@ -38,6 +35,9 @@ import org.kiji.express.flow.util.Resources.doAndRelease
 import org.kiji.schema.KijiTable
 import org.kiji.schema.KijiURI
 import org.kiji.schema.layout.KijiTableLayout
+import org.kiji.express.flow.framework.hfile.{HFileKijiOutput, HFileKijiJob}
+import org.apache.hadoop.hbase.HBaseConfiguration
+import org.apache.hadoop.mapred.JobConf
 
 @RunWith(classOf[JUnitRunner])
 class KijiJobSuite extends KijiSuite {
@@ -240,6 +240,15 @@ class KijiJobSuite extends KijiSuite {
     assert(localException.getMessage === hadoopException.getMessage)
     assert(localException.getMessage.contains("nonexistent_column"))
   }
+
+  test("NullJob.") {
+    new NullJob(Args("--hdfs --hfile-output hfile-output --output output")).run(Mode(Args("--hdfs"), null))
+  }
+
+  test("HFileJob.") {
+    Mode.mode = Mode(Args("--hdfs"), new JobConf())
+    new HFileJob(Args("--hdfs --hfile-output hfile-output --output output")).run
+  }
 }
 
 class PackGenericRecordJob(args: Args) extends KijiJob(args) {
@@ -271,4 +280,35 @@ class UnpackSpecificRecordJob(args: Args) extends KijiJob(args) {
       .map('slice -> 'record) { slice: Seq[FlowCell[SimpleRecord]] => slice.head.datum }
       .unpackTo[SimpleRecord]('record -> ('l, 's, 'o))
       .write(Tsv(args("output")))
+}
+
+class NullJob(args: Args) extends HFileKijiJob(args) {
+  IterableSource(1 to 10, 'a)
+      .read
+      .write(Tsv("fooz"))
+      .write(Tsv("barz"))
+}
+
+class HFileJob(args: Args) extends HFileKijiJob(args) {
+  val family = args.getOrElse("family", "default")
+  val inQualifier = args.getOrElse("inQualifier", "long")
+  val outQualifier = args.getOrElse("outQualifier", "long")
+  val uri = args.getOrElse("uri", "kiji://localhost:2181/default/memory_stress")
+
+  @transient val inColumn = QualifiedColumnInputSpec(family, inQualifier, all)
+  @transient val outColumn = QualifiedColumnOutputSpec(family, outQualifier)
+
+  KijiInput(uri, Map(inColumn -> 'a))
+      .read
+//      .map('a -> 'b) { a: Seq[_] => System.currentTimeMillis() }
+//      .write(HFileKijiOutput(uri, "hfiles1", Map('b -> outColumn)))
+      .debug
+      .groupAll
+      .debug
+      .write(NullSource)
+//      .write(HFileKijiOutput(uri, "hfiles1", Map('a -> outColumn)))
+
+//  IterableSource(Seq("foo", "bar", "baz"))
+//    .read
+//    .write(Tsv("hfiles-iterable"))
 }

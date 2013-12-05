@@ -70,13 +70,13 @@ import org.kiji.express.flow.framework.KijiScheme
  */
 @ApiAudience.Framework
 @ApiStability.Experimental
-class HFileKijiSource private[express] (
-    val tableAddress: String,
-    val hFileOutput: String,
-    val timeRange: TimeRange,
-    val timestampField: Option[Symbol],
-    val loggingInterval: Long,
-    val columns: Map[Symbol, ColumnOutputSpec]
+case class HFileKijiSource private[express] (
+    tableAddress: String,
+    hFileOutput: String,
+    timeRange: TimeRange,
+    timestampField: Option[Symbol],
+    loggingInterval: Long,
+    columns: Map[Symbol, ColumnOutputSpec]
 ) extends Source {
 
   /**
@@ -110,30 +110,6 @@ class HFileKijiSource private[express] (
     // Delegate any other tap types to Source's default behaviour.
     case _ => super.createTap(readOrWrite)(mode)
   }
-
-  override def toString: String = {
-    Objects
-        .toStringHelper(this)
-        .add("tableAddress", tableAddress)
-        .add("timeRange", timeRange)
-        .add("timestampField", timestampField)
-        .add("loggingInterval", loggingInterval)
-        .add("columns", columns)
-        .toString
-  }
-
-  override def equals(obj: Any): Boolean = obj match {
-    case other: HFileKijiSource =>
-      tableAddress == other.tableAddress &&
-          hFileOutput == other.hFileOutput &&
-          columns == other.columns &&
-          timestampField == other.timestampField &&
-          timeRange == other.timeRange
-    case _ => false
-  }
-
-  override def hashCode(): Int =
-      Objects.hashCode(tableAddress, hFileOutput, columns, timestampField, timeRange)
 }
 
 /**

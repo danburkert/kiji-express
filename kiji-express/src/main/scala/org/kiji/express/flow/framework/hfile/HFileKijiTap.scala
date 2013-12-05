@@ -152,9 +152,8 @@ extends Tap[JobConf, RecordReader[KijiKey, KijiValue], OutputCollector[_, _]](
   override def resourceExists(conf: JobConf): Boolean = true
 
   /**
-   * Sets any configuration options that are required for running a MapReduce job
-   * that writes to a Kiji table. This method gets called on the client machine
-   * during job setup.
+   * Sets any configuration options that are required for running a MapReduce job that writes to
+   * HFiles. This method gets called on the client machine during job setup.
    *
    * @param flow being built.
    * @param conf to which we will add the table uri.

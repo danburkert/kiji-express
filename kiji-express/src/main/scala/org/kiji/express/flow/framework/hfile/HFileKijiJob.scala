@@ -19,28 +19,20 @@
 
 package org.kiji.express.flow.framework.hfile
 
-import scala.transient
+import scala.collection.JavaConverters.collectionAsScalaIterableConverter
+import scala.collection.JavaConverters.mapAsScalaMapConverter
 
 import cascading.flow.Flow
-import cascading.tap.hadoop.Hfs
-import cascading.util.Util
 import com.twitter.scalding.Args
-import com.twitter.scalding.HadoopTest
-import com.twitter.scalding.Hdfs
-import com.twitter.scalding.Job
 import com.twitter.scalding.Mode
-import com.twitter.scalding.WritableSequenceFile
-import org.apache.hadoop.conf.Configuration
-import org.apache.hadoop.fs.FileSystem
-import org.apache.hadoop.fs.Path
-import org.apache.hadoop.io.NullWritable
 import org.apache.hadoop.mapred.JobConf
 
 import org.kiji.annotations.ApiAudience
 import org.kiji.annotations.ApiStability
 import org.kiji.annotations.Inheritance
 import org.kiji.express.flow.KijiJob
-import org.kiji.mapreduce.framework.HFileKeyValue
+import cascading.pipe.{Checkpoint, Pipe}
+import cascading.tap.Tap
 
 /**
  * HFileKijiJob is an extension of KijiJob and users should extend it instead of KijiJob when
@@ -74,92 +66,41 @@ import org.kiji.mapreduce.framework.HFileKeyValue
 @ApiStability.Experimental
 @Inheritance.Extensible
 class HFileKijiJob(args: Args) extends KijiJob(args) {
-  /** Name of the command-line argument that specifies the temporary HFile root directory. */
-  final val HFileOutputArgName: String = "hfile-output"
-
-  /** Name of the command-line argument that specifies the target output table. */
-  final val TableOutputArgName: String = "output"
-
-  // Force the check to ensure that a value has been provided for the hFileOutput
-  args(HFileOutputArgName)
-  args(TableOutputArgName)
-
-  @transient
-  lazy private val jobConf: Configuration = implicitly[Mode] match {
-    case Hdfs(_, configuration) => configuration
-    case HadoopTest(configuration, _) => configuration
-    case _ => new JobConf()
-  }
-
-  @transient
-  lazy val uniqTempFolder = makeTemporaryPathDirString("HFileDumper")
-
-  val tempPath = new Path(Hfs.getTempPath(jobConf.asInstanceOf[JobConf]), uniqTempFolder).toString
-
-  override def config(implicit mode: Mode): Map[AnyRef, AnyRef] = {
-    val baseConfig = super.config(mode)
-    baseConfig + (HFileKijiOutput.TEMP_HFILE_OUTPUT_KEY -> tempPath.toString)
-  }
 
   override def buildFlow(implicit mode: Mode): Flow[_] = {
+    modifyFlowDef()
     val flow = super.buildFlow
     // Here we set the strategy to change the sink steps since we are dumping to HFiles.
-    flow.setFlowStepStrategy(new HFileFlowStepStrategy)
+    flow.setFlowStepStrategy(HFileFlowStepStrategy)
+    flow.writeDOT("post-flow.dot")
+    flow.writeStepsDOT("post-steps.dot")
     flow
   }
 
-  override def next: Option[Job] = {
-    val fs = FileSystem.get(jobConf)
-    if(fs.exists(new Path(tempPath))) {
-      val newArgs = args + ("input" -> Some(tempPath))
-      val job = new HFileMapJob(newArgs)
-      Some(job)
-    } else {
-      None
-    }
-  }
+  def modifyFlowDef(): Unit = {
+    val sinks: java.util.Map[String, Tap[_, _, _]] = flowDef.getSinks
+    val tails: java.util.List[Pipe] = flowDef.getTails
 
-  // Borrowed from Hfs#makeTemporaryPathDirString
-  private def makeTemporaryPathDirString(name: String) = {
-    // _ is treated as a hidden file, so wipe them out
-    val name2 = name.replaceAll("^[_\\W\\s]+", "")
+    val hfileSinks = sinks.asScala.collectFirst { case (name, _: HFileKijiTap) => name }.toSet
 
-    val name3 = if (name2.isEmpty()) {
-      "temp-path"
-    } else {
-      name2
-    }
+    if (!hfileSinks.isEmpty) {
+      val tailsMap = flowDef.getTails.asScala.map((p: Pipe) => p.getName -> p).toMap
+      val flow: Flow[JobConf] = super.buildFlow.asInstanceOf[Flow[JobConf]]
+      flow.writeDOT("pre-flow.dot")
+      flow.writeStepsDOT("pre-steps.dot")
 
-    name3.replaceAll("[\\W\\s]+", "_") + Util.createUniqueID()
-  }
-}
-
-/**
- * Private job implementation that executes the conversion of the intermediary HFile key-value
- * sequence files to the final HFiles. This is done only if the first job had a Cascading
- * configured reducer.
- */
-@ApiAudience.Private
-@ApiStability.Experimental
-private final class HFileMapJob(args: Args) extends HFileKijiJob(args) {
-
-  override def next: Option[Job] = {
-    val conf: Configuration = implicitly[Mode] match {
-      case Hdfs(_, configuration) => {
-        configuration
+      for {
+        flowStep <- flow.getFlowSteps.asScala
+        sink <- flowStep.getSinks.asScala
+        name <- flowStep.getSinkName(sink).asScala if hfileSinks(name)
+      } {
+        val tail = tailsMap(name)
+        if (flowStep.getConfig.getNumReduceTasks == 0) {
+          sinks.remove(name)
+          tails.remove(tail)
+          flowDef.addTailSink(new Checkpoint(tail), sink)
+        }
       }
-      case HadoopTest(configuration, _) => {
-        configuration
-      }
-      case _ => new JobConf()
     }
-    val fs = FileSystem.get(conf)
-    val input = args("input")
-    fs.delete(new Path(input), true)
-    None
   }
-
-  WritableSequenceFile[HFileKeyValue, NullWritable](args("input"), ('keyValue, 'bogus))
-      .read
-      .write(new HFileSource(args(TableOutputArgName),args(HFileOutputArgName)))
 }

@@ -21,6 +21,8 @@ package org.kiji.express.flow.framework.hfile
 
 import java.net.URI
 
+import scala.collection.JavaConverters.iterableAsScalaIterableConverter
+
 import cascading.flow.Flow
 import cascading.flow.FlowStep
 import cascading.flow.FlowStepStrategy
@@ -62,54 +64,38 @@ import org.kiji.schema.mapreduce.KijiConfKeys
 @ApiAudience.Framework
 @ApiStability.Experimental
 @Inheritance.Sealed
-class HFileFlowStepStrategy extends FlowStepStrategy[JobConf] {
+object HFileFlowStepStrategy extends FlowStepStrategy[JobConf] {
 
-  override def apply(flow: Flow[JobConf],
-                     predecessorSteps: java.util.List[FlowStep[JobConf]],
-                     flowStep: FlowStep[JobConf]) {
-    val conf = flowStep.getConfig
-    val outputFormat = conf.get("elephantbird.class.for.DeprecatedOutputFormatWrapper")
-    val numReducers = conf.getNumReduceTasks
-    val hfOutputFormat = classOf[KijiHFileOutputFormat].getName
+  override def apply(
+      flow: Flow[JobConf],
+      predecessorSteps: java.util.List[FlowStep[JobConf]],
+      flowStep: FlowStep[JobConf]) {
+    if (!flowStep.getSinks.asScala.collect { case sink: HFileKijiTap => sink }.isEmpty) {
+      val conf = flowStep.getConfig
+      conf.setPartitionerClass(classOf[TotalOrderPartitioner[HFileKeyValue, NullWritable]])
+      conf.setReducerClass(classOf[IdentityReducer[HFileKeyValue, NullWritable]])
 
-    if (outputFormat == hfOutputFormat) {
-      // If this is part of a map-only job, then we configure a reducer with the correct
-      // partitioner.
-      if (numReducers == 0) {
-        conf.setPartitionerClass(classOf[TotalOrderPartitioner[HFileKeyValue, NullWritable]])
-        conf.setReducerClass(classOf[IdentityReducer[HFileKeyValue, NullWritable]])
+      conf.setMapOutputKeyClass(classOf[HFileKeyValue])
+      conf.setMapOutputValueClass(classOf[NullWritable])
+      conf.setOutputKeyComparatorClass(classOf[FastComparator])
 
-        conf.setMapOutputKeyClass(classOf[HFileKeyValue])
-        conf.setMapOutputValueClass(classOf[NullWritable])
-        conf.setOutputKeyComparatorClass(classOf[FastComparator])
+      val outputURI = conf.get(KijiConfKeys.OUTPUT_KIJI_TABLE_URI)
+      val kijiURI = KijiURI.newBuilder(outputURI).build()
+      val splits = HFileMapReduceJobOutput.makeTableKeySplit(kijiURI, 0, conf)
+      conf.setNumReduceTasks(splits.size())
 
-        val outputURI = conf.get(KijiConfKeys.OUTPUT_KIJI_TABLE_URI)
-        val kijiURI = KijiURI.newBuilder(outputURI).build()
-        val splits = HFileMapReduceJobOutput.makeTableKeySplit(kijiURI, 0, conf)
-        conf.setNumReduceTasks(splits.size())
+      // Write the file that the TotalOrderPartitioner reads to determine where to partition
+      // records.
+      var partitionFilePath =
+        new Path(conf.getWorkingDirectory, TotalOrderPartitioner.DEFAULT_PATH)
 
-        // Write the file that the TotalOrderPartitioner reads to determine where to partition
-        // records.
-        var partitionFilePath =
-          new Path(conf.getWorkingDirectory, TotalOrderPartitioner.DEFAULT_PATH)
-
-        val fs = partitionFilePath.getFileSystem(conf)
-        partitionFilePath = fs.makeQualified(partitionFilePath)
-        HFileMapReduceJobOutput.writePartitionFile(conf, partitionFilePath, splits)
-        val cacheUri =
-          new URI(partitionFilePath.toString + "#" + TotalOrderPartitioner.DEFAULT_PATH)
-        DistributedCache.addCacheFile(cacheUri, conf)
-        DistributedCache.createSymlink(conf)
-      } else {
-        // We use the temporary path that was configured by the job to dump the HFileKVs
-        // for the second M/R job to process and then properly produce HFiles.
-        val newOutputPath = new Path(conf.get(HFileKijiOutput.TEMP_HFILE_OUTPUT_KEY))
-        conf.setOutputKeyClass(classOf[HFileKeyValue])
-        conf.setOutputValueClass(classOf[NullWritable])
-
-        conf.setOutputFormat(classOf[SequenceFileOutputFormat[HFileKeyValue, NullWritable]])
-        FileOutputFormat.setOutputPath(conf, newOutputPath)
-      }
+      val fs = partitionFilePath.getFileSystem(conf)
+      partitionFilePath = fs.makeQualified(partitionFilePath)
+      HFileMapReduceJobOutput.writePartitionFile(conf, partitionFilePath, splits)
+      val cacheUri =
+        new URI(partitionFilePath.toString + "#" + TotalOrderPartitioner.DEFAULT_PATH)
+      DistributedCache.addCacheFile(cacheUri, conf)
+      DistributedCache.createSymlink(conf)
     }
   }
 }
