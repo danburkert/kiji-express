@@ -95,10 +95,9 @@ class HFileKijiJob(args: Args) extends KijiJob(args) {
         name <- flowStep.getSinkName(sink).asScala if hfileSinks(name)
       } {
         val tail = tailsMap(name)
-        if (flowStep.getConfig.getNumReduceTasks == 0) {
-          sinks.remove(name)
+        if (flowStep.getConfig.getNumReduceTasks > 0) {
           tails.remove(tail)
-          flowDef.addTailSink(new Checkpoint(tail), sink)
+          flowDef.addTail(new Pipe(name, new Checkpoint(tail.getPrevious.head)))
         }
       }
     }

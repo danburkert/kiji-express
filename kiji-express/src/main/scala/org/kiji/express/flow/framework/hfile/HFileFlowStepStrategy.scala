@@ -20,6 +20,7 @@
 package org.kiji.express.flow.framework.hfile
 
 import java.net.URI
+import java.util.{List => JList}
 
 import scala.collection.JavaConverters.iterableAsScalaIterableConverter
 
@@ -29,9 +30,7 @@ import cascading.flow.FlowStepStrategy
 import org.apache.hadoop.filecache.DistributedCache
 import org.apache.hadoop.fs.Path
 import org.apache.hadoop.io.NullWritable
-import org.apache.hadoop.mapred.FileOutputFormat
 import org.apache.hadoop.mapred.JobConf
-import org.apache.hadoop.mapred.SequenceFileOutputFormat
 import org.apache.hadoop.mapred.lib.IdentityReducer
 import org.apache.hadoop.mapred.lib.TotalOrderPartitioner
 
@@ -41,7 +40,6 @@ import org.kiji.annotations.Inheritance
 import org.kiji.mapreduce.framework.HFileKeyValue
 import org.kiji.mapreduce.framework.HFileKeyValue.FastComparator
 import org.kiji.mapreduce.output.HFileMapReduceJobOutput
-import org.kiji.mapreduce.output.framework.KijiHFileOutputFormat
 import org.kiji.schema.KijiURI
 import org.kiji.schema.mapreduce.KijiConfKeys
 
@@ -68,9 +66,10 @@ object HFileFlowStepStrategy extends FlowStepStrategy[JobConf] {
 
   override def apply(
       flow: Flow[JobConf],
-      predecessorSteps: java.util.List[FlowStep[JobConf]],
+      predecessorSteps: JList[FlowStep[JobConf]],
       flowStep: FlowStep[JobConf]) {
-    if (!flowStep.getSinks.asScala.collect { case sink: HFileKijiTap => sink }.isEmpty) {
+
+    if (flowStep.getSinks.asScala.collect { case sink: HFileKijiTap => sink }.nonEmpty) {
       val conf = flowStep.getConfig
       conf.setPartitionerClass(classOf[TotalOrderPartitioner[HFileKeyValue, NullWritable]])
       conf.setReducerClass(classOf[IdentityReducer[HFileKeyValue, NullWritable]])
