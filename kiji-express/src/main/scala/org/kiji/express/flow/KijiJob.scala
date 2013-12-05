@@ -20,6 +20,7 @@
 package org.kiji.express.flow
 
 import scala.collection.JavaConverters.collectionAsScalaIterableConverter
+import scala.collection.JavaConverters.mapAsScalaMapConverter
 
 import java.util.Properties
 
@@ -42,6 +43,8 @@ import org.kiji.express.flow.framework.LocalKijiTap
 import org.kiji.express.flow.util.AvroTupleConversions
 import org.kiji.express.flow.util.PipeConversions
 import cascading.flow.Flow
+import org.kiji.express.flow.framework.hfile.{HFileKijiTap, HFileFlowStepStrategy}
+import cascading.pipe.{Checkpoint, Pipe}
 
 /**
  * KijiJob is KijiExpress's extension of Scalding's `Job`, and users should extend it when writing
@@ -58,26 +61,24 @@ class KijiJob(args: Args = Args(Nil))
     extends Job(args)
     with PipeConversions
     with AvroTupleConversions {
+
   override def validateSources(mode: Mode): Unit = {
     val taps: List[Tap[_, _, _]] =
         flowDef.getSources.values.asScala.toList ++
-        flowDef.getSinks.values.asScala.toList
+        flowDef.getSinks.values.asScala.toList ++
+        flowDef.getCheckpoints.values.asScala.toList
 
     // Retrieve the configuration
-    var conf: Configuration = HBaseConfiguration.create()
-    implicitly[Mode] match {
-      case Hdfs(_, configuration) => {
-        conf = configuration
-      }
-      case HadoopTest(configuration, _) => {
-        conf = configuration
-      }
-      case _ =>
+    val conf: Configuration = mode match {
+      case Hdfs(_, configuration) => configuration
+      case HadoopTest(configuration, _) => configuration
+      case _ => HBaseConfiguration.create()
     }
 
     // Validate that the Kiji parts of the sources (tables, columns) are valid and exist.
     taps.foreach {
-      case kijiTap: KijiTap => kijiTap.validate(new JobConf(conf))
+      case tap: KijiTap => tap.validate(new JobConf(conf))
+      case tap: HFileKijiTap => // No validation yet...
       case localKijiTap: LocalKijiTap => {
         val properties: Properties = new Properties()
         properties.putAll(HadoopUtil.createProperties(conf))
@@ -91,8 +92,40 @@ class KijiJob(args: Args = Args(Nil))
   }
 
   override def buildFlow(implicit mode : Mode): Flow[_] = {
-    val flow = super.buildFlow(mode)
+    modifyFlowDef()
+    val flow = super.buildFlow
+    // Here we set the strategy to change the sink steps since we are dumping to HFiles.
+    flow.setFlowStepStrategy(HFileFlowStepStrategy)
     flow
+  }
+
+  /**
+   * Modifies the flowDef to include an explicit checkpoint when writing HFiles, if necessary.
+   */
+  private def modifyFlowDef(): Unit = {
+    val sinks: java.util.Map[String, Tap[_, _, _]] = flowDef.getSinks
+    val tails: java.util.List[Pipe] = flowDef.getTails
+
+    val hfileSinks = sinks.asScala.collectFirst { case (name, _: HFileKijiTap) => name }.toSet
+
+    if (!hfileSinks.isEmpty) {
+      val tailsMap = flowDef.getTails.asScala.map((p: Pipe) => p.getName -> p).toMap
+      val flow: Flow[JobConf] = super.buildFlow.asInstanceOf[Flow[JobConf]]
+      flow.writeDOT("pre-flow.dot")
+      flow.writeStepsDOT("pre-steps.dot")
+
+      for {
+        flowStep <- flow.getFlowSteps.asScala
+        sink <- flowStep.getSinks.asScala
+        name <- flowStep.getSinkName(sink).asScala if hfileSinks(name)
+      } {
+        val tail = tailsMap(name)
+        if (flowStep.getConfig.getNumReduceTasks > 0) {
+          tails.remove(tail)
+          flowDef.addTail(new Pipe(name, new Checkpoint(tail.getPrevious.head)))
+        }
+      }
+    }
   }
 
   override def config(implicit mode: Mode): Map[AnyRef, AnyRef] = {

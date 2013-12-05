@@ -22,7 +22,10 @@ package org.kiji.express.flow
 import scala.collection.mutable
 
 import cascading.tuple.Fields
-import com.twitter.scalding.{NullSource, Mode, IterableSource, Args, JobTest, TextLine, Tsv}
+import com.twitter.scalding.Args
+import com.twitter.scalding.JobTest
+import com.twitter.scalding.TextLine
+import com.twitter.scalding.Tsv
 import org.apache.avro.generic.GenericRecord
 import org.apache.avro.generic.GenericRecordBuilder
 import org.apache.avro.specific.SpecificRecord
@@ -35,9 +38,6 @@ import org.kiji.express.flow.util.Resources.doAndRelease
 import org.kiji.schema.KijiTable
 import org.kiji.schema.KijiURI
 import org.kiji.schema.layout.KijiTableLayout
-import org.kiji.express.flow.framework.hfile.{HFileKijiOutput, HFileKijiJob}
-import org.apache.hadoop.hbase.HBaseConfiguration
-import org.apache.hadoop.mapred.JobConf
 
 @RunWith(classOf[JUnitRunner])
 class KijiJobSuite extends KijiSuite {
@@ -110,9 +110,9 @@ class KijiJobSuite extends KijiSuite {
         .arg("uri", uri)
         .source(Tsv("inputFile", fields = new Fields("l", "s")), rawInputs)
         .sink(KijiOutput(uri,
-            Map('record ->
-                QualifiedColumnOutputSpec("family", "simple", classOf[SimpleRecord]))))(
-                    validatePacking)
+      Map('record ->
+          QualifiedColumnOutputSpec("family", "simple", classOf[SimpleRecord]))))(
+          validatePacking)
 
     // Run in local mode.
     jobTest.run.finish
@@ -130,8 +130,8 @@ class KijiJobSuite extends KijiSuite {
         .arg("input", uri)
         .arg("output", "outputFile")
         .source(KijiInput(uri,
-            Map(QualifiedColumnInputSpec("family", "simple", SimpleRecord.getClassSchema)
-                -> 'slice)), input)
+      Map(QualifiedColumnInputSpec("family", "simple", SimpleRecord.getClassSchema)
+          -> 'slice)), input)
         .sink(Tsv("outputFile"))(validateUnpacking)
 
     // Run in local mode.
@@ -143,8 +143,8 @@ class KijiJobSuite extends KijiSuite {
   test("A KijiJob can unpack a specific record.") {
     val slices: List[Seq[FlowCell[SpecificRecord]]] = specificInputs
         .map { record: SpecificRecord =>
-          List(FlowCell("family", "simple", datum = record))
-        }
+      List(FlowCell("family", "simple", datum = record))
+    }
     val input: List[(EntityId, Seq[FlowCell[SpecificRecord]])] = eids.zip(slices)
 
     val jobTest = JobTest(new UnpackSpecificRecordJob(_))
@@ -164,8 +164,8 @@ class KijiJobSuite extends KijiSuite {
   test("A KijiJob is not run if the Kiji instance in the output doesn't exist.") {
     class BasicJob(args: Args) extends KijiJob(args) {
       TextLine(args("input"))
-        .map ('line -> 'entityId) { line: String => EntityId(line) }
-        .write(KijiOutput(args("output"), 'line -> "family:column1"))
+          .map ('line -> 'entityId) { line: String => EntityId(line) }
+          .write(KijiOutput(args("output"), 'line -> "family:column1"))
     }
 
     val nonexistentInstanceURI: String = KijiURI.newBuilder(uri)
@@ -193,7 +193,7 @@ class KijiJobSuite extends KijiSuite {
   test("A KijiJob is not run if the Kiji table in the output doesn't exist.") {
     class BasicJob(args: Args) extends KijiJob(args) {
       TextLine(args("input"))
-        .write(KijiOutput(args("output"), 'line -> "family:column1"))
+          .write(KijiOutput(args("output"), 'line -> "family:column1"))
     }
 
     val nonexistentTableURI: String = KijiURI.newBuilder(uri)
@@ -221,7 +221,7 @@ class KijiJobSuite extends KijiSuite {
   test("A KijiJob is not run if any of the columns don't exist.") {
     class BasicJob(args: Args) extends KijiJob(args) {
       TextLine(args("input"))
-        .write(KijiOutput(args("output"), 'line -> "family:nonexistent_column"))
+          .write(KijiOutput(args("output"), 'line -> "family:nonexistent_column"))
     }
 
     val basicInput: List[(String, String)] = List[(String, String)]()
@@ -240,6 +240,7 @@ class KijiJobSuite extends KijiSuite {
     assert(localException.getMessage === hadoopException.getMessage)
     assert(localException.getMessage.contains("nonexistent_column"))
   }
+}
 
 class PackGenericRecordJob(args: Args) extends KijiJob(args) {
   Tsv(args("input"), fields = ('l, 's)).read
@@ -253,12 +254,12 @@ class PackSpecificRecordJob(args: Args) extends KijiJob(args) {
       .packTo[SimpleRecord](('l, 's) -> 'record)
       .insert('entityId, EntityId("foo"))
       .write(KijiOutput(args("uri"),
-          Map('record -> QualifiedColumnOutputSpec("family", "simple", classOf[SimpleRecord]))))
+    Map('record -> QualifiedColumnOutputSpec("family", "simple", classOf[SimpleRecord]))))
 }
 
 class UnpackGenericRecordJob(args: Args) extends KijiJob(args) {
   KijiInput(args("input"),
-      Map(QualifiedColumnInputSpec("family", "simple", SimpleRecord.getClassSchema) -> 'slice))
+    Map(QualifiedColumnInputSpec("family", "simple", SimpleRecord.getClassSchema) -> 'slice))
       .mapTo('slice -> 'record) { slice: Seq[FlowCell[GenericRecord]] => slice.head.datum }
       .unpackTo[GenericRecord]('record -> ('l, 's, 'o))
       .write(Tsv(args("output")))
@@ -266,7 +267,7 @@ class UnpackGenericRecordJob(args: Args) extends KijiJob(args) {
 
 class UnpackSpecificRecordJob(args: Args) extends KijiJob(args) {
   KijiInput(args("input"),
-      Map(QualifiedColumnInputSpec("family", "simple", classOf[SimpleRecord]) -> 'slice))
+    Map(QualifiedColumnInputSpec("family", "simple", classOf[SimpleRecord]) -> 'slice))
       .map('slice -> 'record) { slice: Seq[FlowCell[SimpleRecord]] => slice.head.datum }
       .unpackTo[SimpleRecord]('record -> ('l, 's, 'o))
       .write(Tsv(args("output")))

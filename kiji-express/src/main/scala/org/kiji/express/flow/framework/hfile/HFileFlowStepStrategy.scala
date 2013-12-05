@@ -68,7 +68,6 @@ object HFileFlowStepStrategy extends FlowStepStrategy[JobConf] {
       flow: Flow[JobConf],
       predecessorSteps: JList[FlowStep[JobConf]],
       flowStep: FlowStep[JobConf]) {
-
     if (flowStep.getSinks.asScala.collect { case sink: HFileKijiTap => sink }.nonEmpty) {
       val conf = flowStep.getConfig
       conf.setPartitionerClass(classOf[TotalOrderPartitioner[HFileKeyValue, NullWritable]])
