@@ -220,7 +220,7 @@ private[express] class LocalKijiTap(
    */
   private[express] def validate(conf: Properties): Unit = {
     val kijiUri: KijiURI = KijiURI.newBuilder(tableUri).build()
-    KijiTap.validate(kijiUri, scheme.icolumns, scheme.ocolumns, HadoopUtil.createJobConf(conf,
+    KijiTap.validate(kijiUri, scheme.inputColumns, scheme.outputColumns, HadoopUtil.createJobConf(conf,
         new JobConf(HBaseConfiguration.create())))
   }
 }

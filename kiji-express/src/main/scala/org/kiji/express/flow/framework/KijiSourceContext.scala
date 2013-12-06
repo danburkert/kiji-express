@@ -22,19 +22,15 @@ package org.kiji.express.flow.framework
 import org.kiji.annotations.ApiAudience
 import org.kiji.annotations.ApiStability
 import org.kiji.annotations.Inheritance
-import org.kiji.schema.KijiURI
 
 /**
  * Container for a Kiji row data and Kiji table layout object that is required by a map reduce
  * task while reading from a Kiji table.
  *
  * @param rowContainer is the representation of a Kiji row.
- * @param tableUri is the URI of the Kiji table.
  */
 @ApiAudience.Private
 @ApiStability.Experimental
 @Inheritance.Sealed
-private[express] case class KijiSourceContext (
-    rowContainer: KijiValue,
-    tableUri: KijiURI) {
-}
+private[express] case class KijiSourceContext (rowContainer: KijiValue)
+

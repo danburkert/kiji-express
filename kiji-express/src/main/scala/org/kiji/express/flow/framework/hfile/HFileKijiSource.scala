@@ -82,7 +82,7 @@ case class HFileKijiSource private[express] (
    * the hadoop runner.
    */
   override val hdfsScheme: KijiScheme.HadoopScheme =
-    new HFileKijiScheme(timeRange, timestampField, loggingInterval, columns)
+    new HFileKijiScheme(timeRange, timestampField, columns)
       // This cast is required due to Scheme being defined with invariant type parameters.
       .asInstanceOf[KijiScheme.HadoopScheme]
 

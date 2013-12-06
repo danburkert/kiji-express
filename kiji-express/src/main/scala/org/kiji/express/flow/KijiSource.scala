@@ -52,11 +52,8 @@ import org.apache.hadoop.mapred.RecordReader
 
 import org.kiji.annotations.ApiAudience
 import org.kiji.annotations.ApiStability
-import org.kiji.express.flow.framework.KijiScheme
-import org.kiji.express.flow.framework.KijiTap
-import org.kiji.express.flow.framework.LocalKijiScheme
-import org.kiji.express.flow.framework.LocalKijiTap
-import org.kiji.express.flow.framework.OutputContext
+import org.kiji.express.flow.framework.{DirectKijiSinkContext, KijiScheme, KijiTap,
+LocalKijiScheme, LocalKijiTap}
 import org.kiji.express.flow.util.Resources._
 import org.kiji.mapreduce.framework.KijiConfKeys
 import org.kiji.schema.EntityIdFactory
@@ -368,7 +365,7 @@ private[express] object KijiSource {
 
     override def sinkCleanup(
         process: FlowProcess[Properties],
-        sinkCall: SinkCall[OutputContext, OutputStream]) {
+        sinkCall: SinkCall[DirectKijiSinkContext, OutputStream]) {
       // Store the output table.
       val conf: JobConf = HadoopUtil
           .createJobConf(process.getConfigCopy, new JobConf(HBaseConfiguration.create()))
@@ -419,9 +416,7 @@ private[express] object KijiSource {
                       inputColumns,
                       getSourceFields,
                       timestampField,
-                      row,
-                      table.getURI,
-                      conf
+                      row
                   )
 
               val newTupleValues = tuple

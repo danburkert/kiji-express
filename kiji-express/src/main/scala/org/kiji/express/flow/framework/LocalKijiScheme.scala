@@ -20,7 +20,6 @@
 package org.kiji.express.flow.framework
 
 import java.io.InputStream
-import java.io.OutputStream
 import java.util.HashMap
 import java.util.{Map => JMap}
 import java.util.Properties
@@ -35,7 +34,6 @@ import cascading.scheme.SinkCall
 import cascading.scheme.SourceCall
 import cascading.tap.Tap
 import cascading.tuple.Tuple
-import cascading.tuple.TupleEntry
 import com.google.common.base.Objects
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.hbase.HBaseConfiguration
@@ -53,52 +51,8 @@ import org.kiji.express.flow.util.GenericCellSpecs
 import org.kiji.express.flow.util.Resources._
 import org.kiji.express.flow.util.SpecificCellSpecs
 import org.kiji.mapreduce.framework.KijiConfKeys
-import org.kiji.schema.Kiji
-import org.kiji.schema.KijiColumnName
-import org.kiji.schema.KijiRowData
-import org.kiji.schema.KijiRowScanner
-import org.kiji.schema.KijiTable
-import org.kiji.schema.KijiTableReader
-import org.kiji.schema.KijiTableWriter
-import org.kiji.schema.KijiURI
+import org.kiji.schema.{EntityIdFactory, Kiji, KijiColumnName, KijiRowData, KijiRowScanner, KijiTable, KijiTableReader, KijiURI}
 import org.kiji.schema.layout.CellSpec
-import org.kiji.schema.layout.KijiTableLayout
-
-/**
- * Encapsulates the state required to read from a Kiji table locally, for use in
- * [[org.kiji.express.flow.framework.LocalKijiScheme]].
- *
- * @param reader that has an open connection to the desired Kiji table.
- * @param scanner that has an open connection to the desired Kiji table.
- * @param iterator that maintains the current row pointer.
- * @param tableUri of the kiji table.
- */
-@ApiAudience.Private
-@ApiStability.Experimental
-@Inheritance.Sealed
-private[express] case class InputContext(
-    reader: KijiTableReader,
-    scanner: KijiRowScanner,
-    iterator: Iterator[KijiRowData],
-    tableUri: KijiURI,
-    configuration: Configuration)
-
-/**
- * Encapsulates the state required to write to a Kiji table.
- *
- * @param writer that has an open connection to the desired Kiji table.
- * @param tableUri of the Kiji table.
- * @param layout of the kiji table.
- */
-@ApiAudience.Private
-@ApiStability.Experimental
-@Inheritance.Sealed
-private[express] case class OutputContext(
-    writer: KijiTableWriter,
-    tableUri: KijiURI,
-    kiji: Kiji,
-    layout: KijiTableLayout,
-    configuration: Configuration)
 
 /**
  * A local version of [[org.kiji.express.flow.framework.KijiScheme]] that is meant to be used with
@@ -131,9 +85,9 @@ private[express] case class OutputContext(
  * @param timestampField is the optional name of a field containing the timestamp that all values
  *     in a tuple should be written to.
  *     Use None if all values should be written at the current time.
- * @param icolumns is a one-to-one mapping from field names to Kiji columns. The columns in the
+ * @param inputColumns is a one-to-one mapping from field names to Kiji columns. The columns in the
  *     map will be read into their associated tuple fields.
- * @param ocolumns is a one-to-one mapping from field names to Kiji columns. Values from the
+ * @param outputColumns is a one-to-one mapping from field names to Kiji columns. Values from the
  *     tuple fields will be written to their associated column.
  */
 @ApiAudience.Framework
@@ -141,14 +95,14 @@ private[express] case class OutputContext(
 private[express] class LocalKijiScheme(
     private[express] val timeRange: TimeRange,
     private[express] val timestampField: Option[Symbol],
-    private[express] val icolumns: Map[Symbol, ColumnInputSpec] = Map(),
-    private[express] val ocolumns: Map[Symbol, ColumnOutputSpec] = Map())
-    extends Scheme[Properties, InputStream, OutputStream, InputContext, OutputContext] {
+    private[express] val inputColumns: Map[Symbol, ColumnInputSpec] = Map(),
+    private[express] val outputColumns: Map[Symbol, ColumnOutputSpec] = Map())
+extends LocalKijiScheme.LocalScheme {
   private val logger: Logger = LoggerFactory.getLogger(classOf[LocalKijiScheme])
 
   /** Set the fields that should be in a tuple when this source is used for reading and writing. */
-  setSourceFields(KijiScheme.buildSourceFields(icolumns.keys ++ ocolumns.keys))
-  setSinkFields(KijiScheme.buildSinkFields(ocolumns, timestampField))
+  setSourceFields(KijiScheme.buildSourceFields(inputColumns.keys ++ outputColumns.keys))
+  setSinkFields(KijiScheme.buildSinkFields(outputColumns, timestampField))
 
   /**
    * Sets any configuration options that are required for running a local job
@@ -160,7 +114,7 @@ private[express] class LocalKijiScheme(
    */
   override def sourceConfInit(
       process: FlowProcess[Properties],
-      tap: Tap[Properties, InputStream, OutputStream],
+      tap: Tap[Properties, InputStream, Nothing],
       conf: Properties) {
     // No-op. Setting options in a java Properties object is not going to help us read from
     // a Kiji table.
@@ -183,11 +137,11 @@ private[express] class LocalKijiScheme(
 
     // Build the input context.
     withKijiTable(kijiUri, conf) { table: KijiTable =>
-      val request = KijiScheme.buildRequest(timeRange, icolumns.values)
+      val request = KijiScheme.buildRequest(timeRange, inputColumns.values)
       val reader = {
         val allCellSpecs: JMap[KijiColumnName, CellSpec] = new HashMap[KijiColumnName, CellSpec]()
         allCellSpecs.putAll(GenericCellSpecs(table))
-        allCellSpecs.putAll(SpecificCellSpecs.buildCellSpecs(table.getLayout, icolumns).asJava)
+        allCellSpecs.putAll(SpecificCellSpecs.buildCellSpecs(table.getLayout, inputColumns).asJava)
         table.getReaderFactory.openTableReader(allCellSpecs)
       }
       val scanner = reader.getScanner(request)
@@ -214,21 +168,14 @@ private[express] class LocalKijiScheme(
     if (context.iterator.hasNext) {
       // Get the current row.
       val row: KijiRowData = context.iterator.next()
-      val result: Tuple =
-          KijiScheme.rowToTuple(
-              icolumns,
-              getSourceFields,
-              timestampField,
-              row,
-              context.tableUri,
-              context.configuration)
+      val tuple: Tuple = KijiScheme.rowToTuple(inputColumns, getSourceFields, timestampField, row)
 
       // Set the result tuple and return from this method.
-      sourceCall.getIncomingEntry.setTuple(result)
+      sourceCall.getIncomingEntry.setTuple(tuple)
       process.increment(KijiScheme.counterGroupName, KijiScheme.counterSuccess, 1)
-      return true // We set a result tuple, return true for success.
+      true // We set a result tuple, return true for success.
     } else {
-      return false // We reached the end of the input.
+      false // We reached the end of the input.
     }
   }
 
@@ -249,42 +196,38 @@ private[express] class LocalKijiScheme(
     sourceCall.setContext(null)
   }
 
-  /**
-   * Sets any configuration options that are required for running a local job
-   * that writes to a Kiji table.
-   *
-   * @param process Current Cascading flow being built.
-   * @param tap The tap that is being used with this scheme.
-   * @param conf The job configuration object.
-   */
-  override def sinkConfInit(
-      process: FlowProcess[Properties],
-      tap: Tap[Properties, InputStream, OutputStream],
-      conf: Properties) {
-    // No-op. Setting options in a java Properties object is not going to help us write to
-    // a Kiji table.
+  def sinkConfInit(
+      flowProcess: FlowProcess[Properties],
+      tap: Tap[Properties, InputStream,  Nothing],
+      conf: Properties): Unit = {
   }
 
   /**
    * Sets up any resources required to write to a Kiji table.
    *
-   * @param process Current Cascading flow being run.
+   * @param flow Current Cascading flow being run.
    * @param sinkCall Object containing the context for this source.
    */
   override def sinkPrepare(
-      process: FlowProcess[Properties],
-      sinkCall: SinkCall[OutputContext, OutputStream]) {
-    // Open a table writer.
-    val conf: JobConf = HadoopUtil.createJobConf(process.getConfigCopy,
-        new JobConf(HBaseConfiguration.create()))
-    val uriString: String = conf.get(KijiConfKeys.KIJI_OUTPUT_TABLE_URI)
-    val uri: KijiURI = KijiURI.newBuilder(uriString).build()
+      flow: FlowProcess[Properties],
+      sinkCall: SinkCall[DirectKijiSinkContext, Nothing]) {
 
-    val kiji = Kiji.Factory.open(uri)
-    doAndRelease(kiji.openTable(uri.getTable)) { table: KijiTable =>
+    val conf: JobConf =
+      HadoopUtil.createJobConf(flow.getConfigCopy, new JobConf(HBaseConfiguration.create()))
+
+    val uri: KijiURI = KijiURI.newBuilder(conf.get(KijiConfKeys.KIJI_OUTPUT_TABLE_URI)).build()
+
+    doAndRelease(Kiji.Factory.open(uri, conf)) { kiji =>
+      doAndRelease(kiji.openTable(uri.getTable)) { table: KijiTable =>
       // Set the sink context to an opened KijiTableWriter.
-      sinkCall
-        .setContext(OutputContext(table.openTableWriter(), uri, kiji, table.getLayout, conf))
+        sinkCall.setContext(
+          DirectKijiSinkContext(
+            outputColumns,
+            timestampField,
+            EntityIdFactory.getFactory(table.getLayout),
+            table.getWriterFactory.openBufferedWriter(),
+            KijiScheme.sinkDirect))
+      }
     }
   }
 
@@ -296,21 +239,8 @@ private[express] class LocalKijiScheme(
    */
   override def sink(
       process: FlowProcess[Properties],
-      sinkCall: SinkCall[OutputContext, OutputStream]) {
-    // Retrieve writer from the scheme's context.
-    val OutputContext(writer, tableUri, kiji, layout, configuration) = sinkCall.getContext
-
-    // Write the tuple out.
-    val output: TupleEntry = sinkCall.getOutgoingEntry
-    KijiScheme.putTuple(
-        ocolumns,
-        tableUri,
-        kiji,
-        timestampField,
-        output,
-        writer,
-        layout,
-        configuration)
+      sinkCall: SinkCall[DirectKijiSinkContext, Nothing]) {
+    KijiScheme.kijiSink(sinkCall)
   }
 
   /**
@@ -321,18 +251,18 @@ private[express] class LocalKijiScheme(
    */
   override def sinkCleanup(
       process: FlowProcess[Properties],
-      sinkCall: SinkCall[OutputContext, OutputStream]) {
-    sinkCall.getContext.writer.close()
-    sinkCall.getContext.kiji.release()
-    // Set the context to null so that we no longer hold any references to it.
+      sinkCall: SinkCall[DirectKijiSinkContext, Nothing]) {
+    val writer = sinkCall.getContext.writer
+    writer.flush()
+    writer.close()
     sinkCall.setContext(null)
   }
 
   override def equals(other: Any): Boolean = {
     other match {
       case scheme: LocalKijiScheme => {
-        icolumns == scheme.icolumns &&
-        ocolumns == scheme.ocolumns &&
+        inputColumns == scheme.inputColumns &&
+        outputColumns == scheme.outputColumns &&
             timestampField == scheme.timestampField &&
             timeRange == scheme.timeRange
       }
@@ -340,5 +270,28 @@ private[express] class LocalKijiScheme(
     }
   }
 
-  override def hashCode(): Int = Objects.hashCode(icolumns, ocolumns, timestampField, timeRange)
+  override def hashCode(): Int = Objects.hashCode(inputColumns, outputColumns, timestampField, timeRange)
 }
+
+object LocalKijiScheme {
+  type LocalScheme = Scheme[Properties, InputStream, Nothing, InputContext, DirectKijiSinkContext]
+}
+
+/**
+ * Encapsulates the state required to read from a Kiji table locally, for use in
+ * [[org.kiji.express.flow.framework.LocalKijiScheme]].
+ *
+ * @param reader that has an open connection to the desired Kiji table.
+ * @param scanner that has an open connection to the desired Kiji table.
+ * @param iterator that maintains the current row pointer.
+ * @param tableUri of the kiji table.
+ */
+@ApiAudience.Private
+@ApiStability.Experimental
+@Inheritance.Sealed
+private[express] case class InputContext(
+    reader: KijiTableReader,
+    scanner: KijiRowScanner,
+    iterator: Iterator[KijiRowData],
+    tableUri: KijiURI,
+    configuration: Configuration)
