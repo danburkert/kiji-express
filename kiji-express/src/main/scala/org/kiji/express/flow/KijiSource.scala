@@ -36,13 +36,13 @@ import cascading.tuple.Tuple
 import cascading.tuple.TupleEntry
 import com.google.common.base.Objects
 import com.twitter.scalding.AccessMode
-import com.twitter.scalding.Test
 import com.twitter.scalding.HadoopTest
 import com.twitter.scalding.Hdfs
 import com.twitter.scalding.Local
 import com.twitter.scalding.Mode
 import com.twitter.scalding.Read
 import com.twitter.scalding.Source
+import com.twitter.scalding.Test
 import com.twitter.scalding.Write
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.hbase.HBaseConfiguration
@@ -118,7 +118,7 @@ final class KijiSource private[express] (
   private val tableUri: KijiURI = KijiURI.newBuilder(tableAddress).build()
 
   /** A Kiji scheme intended to be used with Scalding/Cascading's hdfs mode. */
-  private val kijiScheme: KijiScheme =
+  private val directScheme: KijiScheme =
       new KijiScheme(
           timeRange,
           timestampField,
@@ -134,7 +134,7 @@ final class KijiSource private[express] (
    * Creates a Scheme that writes to/reads from a Kiji table for usage with
    * the hadoop runner.
    */
-  override val hdfsScheme: HadoopScheme = kijiScheme
+  override val hdfsScheme: HadoopScheme = directScheme
       // This cast is required due to Scheme being defined with invariant type parameters.
       .asInstanceOf[HadoopScheme]
 
@@ -166,14 +166,14 @@ final class KijiSource private[express] (
 
     val tap: Tap[_, _, _] = mode match {
       // Production taps.
-      case Hdfs(_,_) => new KijiTap(tableUri, kijiScheme).asInstanceOf[Tap[_, _, _]]
+      case Hdfs(_,_) => new KijiTap(tableUri, directScheme).asInstanceOf[Tap[_, _, _]]
       case Local(_) => new LocalKijiTap(tableUri, localKijiScheme).asInstanceOf[Tap[_, _, _]]
 
       // Test taps.
       case HadoopTest(conf, buffers) => {
         readOrWrite match {
           case Read => {
-            val scheme = kijiScheme
+            val scheme = directScheme
             populateTestTable(tableUri, buffers(this), scheme.getSourceFields, conf)
 
             new KijiTap(tableUri, scheme).asInstanceOf[Tap[_, _, _]]

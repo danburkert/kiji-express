@@ -236,7 +236,7 @@ class KijiTap(
    */
   private[express] def validate(conf: JobConf): Unit = {
     val kijiUri: KijiURI = KijiURI.newBuilder(tableUri).build()
-    KijiTap.validate(kijiUri, scheme.inputColumns, scheme.outputColumns, conf)
+    KijiTap.validate(kijiUri, scheme._inputColumns.get, scheme._outputColumns.get, conf)
   }
 }
 

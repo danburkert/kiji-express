@@ -22,7 +22,6 @@ package org.kiji.express.flow.framework.hfile
 import java.lang.UnsupportedOperationException
 
 import cascading.tap.Tap
-import com.google.common.base.Objects
 import com.twitter.scalding.AccessMode
 import com.twitter.scalding.HadoopTest
 import com.twitter.scalding.Hdfs
@@ -32,7 +31,6 @@ import com.twitter.scalding.Write
 
 import org.kiji.annotations.ApiAudience
 import org.kiji.annotations.ApiStability
-import org.kiji.express.flow.All
 import org.kiji.express.flow.ColumnOutputSpec
 import org.kiji.express.flow.TimeRange
 import org.kiji.express.flow.framework.KijiScheme
@@ -108,22 +106,6 @@ case class HFileKijiSource private[express] (
       }
     }
     // Delegate any other tap types to Source's default behaviour.
-    case _ => super.createTap(readOrWrite)(mode)
+    case _ => throw new UnsupportedOperationException("Cascading local mode unsupported")
   }
-}
-
-/**
- * Private Scalding source implementation whose scheme is the SemiNullScheme that
- * simply sinks tuples to an output for later writing to HFiles.
- */
-private final class HFileSource(
-    override val tableAddress: String,
-    override val hFileOutput: String
-) extends HFileKijiSource(tableAddress, hFileOutput, All, None, 0, Map()) {
-  /**
-   * Creates a Scheme that writes to/reads from a Kiji table for usage with
-   * the hadoop runner.
-   */
-  override val hdfsScheme: KijiScheme.HadoopScheme =
-      new SemiNullScheme().asInstanceOf[KijiScheme.HadoopScheme]
 }

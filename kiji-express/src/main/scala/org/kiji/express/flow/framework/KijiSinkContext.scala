@@ -22,27 +22,19 @@ package org.kiji.express.flow.framework
 import org.kiji.annotations.ApiAudience
 import org.kiji.annotations.ApiStability
 import org.kiji.annotations.Inheritance
-import org.kiji.schema.KijiTableWriter
-import org.kiji.schema.Kiji
-import org.kiji.schema.KijiURI
-import org.kiji.schema.layout.KijiTableLayout
+import org.kiji.schema.{EntityIdFactory, KijiBufferedWriter}
+import org.kiji.express.flow.ColumnOutputSpec
 
 /**
  * Container for the table writer and Kiji table layout required during a sink
  * operation to write the output of a map reduce task back to a Kiji table.
  * This is configured during the sink prepare operation.
  *
- * @param kijiTableWriter is a writer object for this Kiji table.
- * @param tableUri of the Kiji table.
- * @param kiji is the Kiji instance for this table, used to access the schema table.
- * @param kijiLayout is the layout for this Kiji table.
  */
 @ApiAudience.Private
 @ApiStability.Experimental
 @Inheritance.Sealed
 private[express] case class KijiSinkContext (
-    kijiTableWriter: KijiTableWriter,
-    tableUri: KijiURI,
-    kiji: Kiji,
-    kijiLayout: KijiTableLayout) {
-}
+    columns: Map[Symbol, ColumnOutputSpec],
+    eidFactory: EntityIdFactory,
+    writer: KijiBufferedWriter)

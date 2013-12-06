@@ -28,9 +28,7 @@ import cascading.scheme.SourceCall
 import cascading.tap.Tap
 import cascading.tuple.Fields
 import cascading.tuple.Tuple
-import cascading.tuple.TupleEntry
 import com.google.common.base.Objects
-import org.apache.avro.Schema
 import org.apache.commons.codec.binary.Base64
 import org.apache.commons.lang.SerializationUtils
 import org.apache.hadoop.conf.Configuration
@@ -66,14 +64,10 @@ import org.kiji.schema.KijiCell
 import org.kiji.schema.KijiDataRequest
 import org.kiji.schema.KijiDataRequestBuilder
 import org.kiji.schema.KijiRowData
-import org.kiji.schema.KijiSchemaTable
 import org.kiji.schema.KijiTable
-import org.kiji.schema.KijiTableWriter
 import org.kiji.schema.KijiURI
 import org.kiji.schema.MapFamilyVersionIterator
-import org.kiji.schema.avro.AvroSchema
-import org.kiji.schema.filter.KijiColumnFilter
-import org.kiji.schema.layout.KijiTableLayout
+import org.kiji.schema.{EntityId => JEntityId}
 
 /**
  * A Kiji-specific implementation of a Cascading `Scheme`, which defines how to read and write the
@@ -102,8 +96,8 @@ import org.kiji.schema.layout.KijiTableLayout
 class KijiScheme(
     private[express] val timeRange: TimeRange,
     private[express] val timestampField: Option[Symbol],
-    @transient private[express] val inputColumns: Map[Symbol, ColumnInputSpec] = Map(),
-    @transient private[express] val outputColumns: Map[Symbol, ColumnOutputSpec] = Map())
+    @transient inputColumns: Map[Symbol, ColumnInputSpec] = Map(),
+    @transient outputColumns: Map[Symbol, ColumnOutputSpec] = Map())
     extends Scheme[JobConf, RecordReader[KijiKey, KijiValue], OutputCollector[_, _],
         KijiSourceContext, KijiSinkContext] {
   import KijiScheme._
@@ -115,8 +109,8 @@ class KijiScheme(
   // we can work around this limitation.  Thus, the following two lines should be the only to
   // reference `inputColumns` and `outputColumns`, because they will be null after serialization.
   // Everything else should instead use _inputColumns.get and _outputColumns.get.
-  private val _inputColumns = KijiLocker(inputColumns)
-  private val _outputColumns = KijiLocker(outputColumns)
+  private[express] val _inputColumns = KijiLocker(inputColumns)
+  private[express] val _outputColumns = KijiLocker(outputColumns)
 
   // Including output column keys here because we might need to read back outputs during test
   // TODO (EXP-250): Ideally we should include outputColumns.keys here only during tests.
@@ -246,21 +240,25 @@ class KijiScheme(
   override def sinkPrepare(
       flow: FlowProcess[JobConf],
       sinkCall: SinkCall[KijiSinkContext, OutputCollector[_, _]]) {
-    // Open a table writer.
-    val uriString: String = flow.getConfigCopy.get(KijiConfKeys.KIJI_OUTPUT_TABLE_URI)
-    val uri: KijiURI = KijiURI.newBuilder(uriString).build()
 
-    val kiji: Kiji = Kiji.Factory.open(uri, flow.getConfigCopy)
-    doAndRelease(kiji.openTable(uri.getTable)) { table: KijiTable =>
+    val conf = flow.getConfigCopy
+    val uri: KijiURI = KijiURI.newBuilder(conf.get(KijiConfKeys.KIJI_OUTPUT_TABLE_URI)).build()
+
+    doAndRelease(Kiji.Factory.open(uri, conf)) { kiji =>
+      doAndRelease(kiji.openTable(uri.getTable)) { table: KijiTable =>
       // Set the sink context to an opened KijiTableWriter.
-      sinkCall.setContext(
-          KijiSinkContext(table.openTableWriter(), uri, kiji, table.getLayout))
+        sinkCall.setContext(
+          KijiSinkContext(
+            _outputColumns.get,
+            EntityIdFactory.getFactory(table.getLayout),
+            table.getWriterFactory().openBufferedWriter()))
+      }
     }
   }
 
   /**
    * Converts and writes a Cascading Tuple to a Kiji table. This method is called once
-   * for each row on the cluster.
+   * for each row on the cluster, so it should be kept as light as possible.
    *
    * @param flow is the current Cascading flow being run.
    * @param sinkCall containing the context for this source.
@@ -268,20 +266,32 @@ class KijiScheme(
   override def sink(
       flow: FlowProcess[JobConf],
       sinkCall: SinkCall[KijiSinkContext, OutputCollector[_, _]]) {
-    // Retrieve writer from the scheme's context.
-    val KijiSinkContext(writer, tableUri, kiji, layout) = sinkCall.getContext
 
-    // Write the tuple out.
-    val output: TupleEntry = sinkCall.getOutgoingEntry
-    putTuple(
-        _outputColumns.get,
-        tableUri,
-        kiji,
-        timestampField,
-        output,
-        writer,
-        layout,
-        flow.getConfigCopy)
+    val KijiSinkContext(columns, eidFactory, writer) = sinkCall.getContext
+    val output = sinkCall.getOutgoingEntry
+
+    // Get the entityId.
+    val entityId: JEntityId = output
+        .getObject(entityIdField.name)
+        .asInstanceOf[EntityId]
+        .toJavaEntityId(eidFactory)
+
+    // Get a timestamp to write the values to, if it was specified by the user.
+    val timestamp: Long = timestampField
+        .map(field => output.getLong(field.name))
+        .getOrElse(HConstants.LATEST_TIMESTAMP)
+
+    columns.keys.foreach { field =>
+      val value = output.getObject(field.name)
+      val col: ColumnOutputSpec = columns(field)
+
+      val qualifier: String = col match {
+        case qc: QualifiedColumnOutputSpec => qc.qualifier
+        case cf: ColumnFamilyOutputSpec => output.getString(cf.qualifierSelector.name)
+      }
+
+      writer.put(entityId, col.family, qualifier, timestamp, col.encode(value))
+    }
   }
 
   /**
@@ -294,8 +304,9 @@ class KijiScheme(
   override def sinkCleanup(
       flow: FlowProcess[JobConf],
       sinkCall: SinkCall[KijiSinkContext, OutputCollector[_, _]]) {
-    sinkCall.getContext.kiji.release()
-    sinkCall.getContext.kijiTableWriter.close()
+    val writer = sinkCall.getContext.writer
+    writer.flush()
+    writer.close()
     sinkCall.setContext(null)
   }
 
@@ -453,74 +464,6 @@ object KijiScheme {
   }
 
   /**
-   * Writes a Cascading tuple to a Kiji table.
-   *
-   * This is used in KijiScheme's `sink` method.
-   *
-   * @param columns mapping field names to column definitions.
-   * @param tableUri of the Kiji table.
-   * @param kiji is the Kiji instance the table belongs to.
-   * @param timestampField is the optional name of a field containing the timestamp that all values
-   *     in a tuple should be written to.
-   *     Use None if all values should be written at the current time.
-   * @param output to write out to Kiji.
-   * @param writer to use for writing to Kiji.
-   * @param layout Kiji table layout.
-   * @param configuration identifying the cluster to use when building EntityIds.
-   */
-  private[express] def putTuple(
-      columns: Map[Symbol, ColumnOutputSpec],
-      tableUri: KijiURI,
-      kiji: Kiji,
-      timestampField: Option[Symbol],
-      output: TupleEntry,
-      writer: KijiTableWriter,
-      layout: KijiTableLayout,
-      configuration: Configuration
-  ) {
-    // Get the entityId.
-    val entityId = output
-        .getObject(entityIdField.name)
-        .asInstanceOf[EntityId]
-        .toJavaEntityId(EntityIdFactory.getFactory(layout))
-
-    // Get a timestamp to write the values to, if it was specified by the user.
-    val timestamp: Long = timestampField
-        .map(field => output.getLong(field.name))
-        .getOrElse(HConstants.LATEST_TIMESTAMP)
-
-    columns.keys
-      .foreach { field =>
-        val value = output.getObject(field.name)
-        val col: ColumnOutputSpec = columns(field)
-
-        val qualifier = col match {
-          case qc: QualifiedColumnOutputSpec => qc.qualifier
-          case cf: ColumnFamilyOutputSpec => output.getString(cf.qualifierSelector.name)
-        }
-
-        writer.put(entityId, col.family, qualifier, timestamp, col.encode(value))
-    }
-  }
-
-  /**
-   * Gets a schema from the reader schema.
-   *
-   * @param readerSchema to find the schema for.
-   * @param schemaTable to look up IDs in.
-   * @return the resolved Schema.
-   */
-  private[express] def resolveSchemaFromJSONOrUid(
-      readerSchema: AvroSchema,
-      schemaTable: KijiSchemaTable
-  ): Schema = {
-    Option(readerSchema.getJson) match {
-      case None => schemaTable.getSchema(readerSchema.getUid)
-      case Some(json) => new Schema.Parser().parse(json)
-    }
-  }
-
-  /**
    * Builds a data request out of the timerange and list of column requests.
    *
    * @param timeRange of cells to retrieve.
@@ -535,13 +478,9 @@ object KijiScheme {
         builder: KijiDataRequestBuilder,
         column: ColumnInputSpec
     ): KijiDataRequestBuilder.ColumnsDef = {
-      val kijiFilter: KijiColumnFilter = column
-          .filter
-          .map { _.toKijiColumnFilter }
-          .getOrElse(null)
       builder.newColumnsDef()
           .withMaxVersions(column.maxVersions)
-          .withFilter(kijiFilter)
+          .withFilter(column.filter.map(_.toKijiColumnFilter).getOrElse(null))
           .withPageSize(column.paging.cellsPerPage.getOrElse(0))
           .add(column.columnName)
     }

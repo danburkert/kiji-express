@@ -83,11 +83,8 @@ private[express] class HFileKijiScheme(
   private[express] val timeRange: TimeRange,
   private[express] val timestampField: Option[Symbol],
   private[express] val loggingInterval: Long,
-  @transient columns: Map[Symbol, ColumnOutputSpec])
+  @transient private[express] val columns: Map[Symbol, ColumnOutputSpec])
     extends HFileKijiScheme.HFileScheme {
-
-  import KijiScheme._
-  import HFileKijiScheme._
 
   // ColumnOutputSpec objects cannot be correctly serialized via
   // java.io.Serializable.  Chiefly, Avro objects including Schema and all of the Generic types
@@ -96,9 +93,9 @@ private[express] class HFileKijiScheme(
   // we can work around this limitation.  Thus, the following two lines should be the only to
   // reference `inputColumns` and `outputColumns`, because they will be null after serialization.
   // Everything else should instead use _inputColumns.get and _outputColumns.get.
-  private[express] val _columns = KijiLocker(columns)
+  private val _columns = KijiLocker(columns)
 
-  setSinkFields(buildSinkFields(_columns.get, timestampField))
+  setSinkFields(KijiScheme.buildSinkFields(_columns.get, timestampField))
 
   /**
    * Sets up any resources required for the MapReduce job. This method is called
@@ -143,7 +140,7 @@ private[express] class HFileKijiScheme(
     val encoderProvider = new CellEncoderProvider(uri, layout, kiji.getSchemaTable,
         DefaultKijiCellEncoderFactory.get())
 
-    outputCells(output, timestampField, _columns.get) { key: HFileCell =>
+    HFileKijiScheme.outputCells(output, timestampField, _columns.get) { key: HFileCell =>
       // Convert cell to an HFileKeyValue
       val kijiColumn = new KijiColumnName(key.colRequest.family, key.colRequest.qualifier)
       val hbaseColumn = colTranslator.toHBaseColumnName(kijiColumn)
@@ -185,33 +182,6 @@ private[express] class HFileKijiScheme(
   }
 
   override def hashCode: Int = Objects.hashCode(_columns.get, timestampField, timeRange)
-}
-
-/**
- * Private scheme that is a subclass of Cascading's NullScheme that doesn't do anything but
- * sinks data. This is used in the secondary M/R job that takes intermediate HFile Key/Values
- * from a sequence files and outputs them to the KijiHFileOutputFormat ultimately going to HFiles.
- */
-@ApiAudience.Framework
-@ApiStability.Experimental
-private[express] final class SemiNullScheme extends HFileKijiScheme.HFileScheme {
-  /**
-   * Converts and writes a Cascading Tuple to a Kiji table. This method is called once
-   * for each row on the cluster.
-   *
-   * @param flow is the current Cascading flow being run.
-   * @param sinkCall containing the context for this source.
-   */
-  override def sink(
-    flow: FlowProcess[JobConf],
-    sinkCall: SinkCall[HFileKijiSinkContext, OutputCollector[HFileKeyValue, NullWritable]]) {
-
-    // Write the tuple out.
-    val output: TupleEntry = sinkCall.getOutgoingEntry
-
-    val hFileKeyValue = output.getObject(0).asInstanceOf[HFileKeyValue]
-    sinkCall.getOutput.collect(hFileKeyValue, NullWritable.get())
-  }
 }
 
 /**
