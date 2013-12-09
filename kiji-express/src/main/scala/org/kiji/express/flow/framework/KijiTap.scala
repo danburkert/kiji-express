@@ -23,19 +23,14 @@ import java.util.UUID
 
 import cascading.flow.FlowProcess
 import cascading.flow.hadoop.HadoopFlowProcess
-import cascading.scheme.Scheme
 import cascading.tap.Tap
-import cascading.tap.hadoop.io.HadoopTupleEntrySchemeCollector
 import cascading.tap.hadoop.io.HadoopTupleEntrySchemeIterator
 import cascading.tuple.TupleEntryCollector
 import cascading.tuple.TupleEntryIterator
 import com.google.common.base.Objects
-
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.mapred.JobConf
-import org.apache.hadoop.mapred.OutputCollector
 import org.apache.hadoop.mapred.RecordReader
-import org.apache.hadoop.mapred.lib.NullOutputFormat
 
 import org.kiji.annotations.ApiAudience
 import org.kiji.annotations.ApiStability
@@ -63,19 +58,14 @@ import org.kiji.schema.layout.KijiTableLayout
  */
 @ApiAudience.Framework
 @ApiStability.Experimental
-class KijiTap(
-    // This is not a val because KijiTap needs to be serializable and KijiURI is not.
-    uri: KijiURI,
-    private val scheme: KijiScheme)
-    extends Tap[JobConf, RecordReader[KijiKey, KijiValue], OutputCollector[_, _]](
-        scheme.asInstanceOf[Scheme[JobConf, RecordReader[KijiKey, KijiValue],
-            OutputCollector[_, _], _, _]]) {
+class KijiTap(uri: KijiURI, private val scheme: KijiScheme)
+    extends Tap[JobConf, RecordReader[KijiKey, KijiValue], Nothing](scheme) {
 
   /** Address of the table to read from or write to. */
-  private val tableUri: String = uri.toString()
+  private val tableUri: String = uri.toString
 
   /** Unique identifier for this KijiTap instance. */
-  private val id: String = UUID.randomUUID().toString()
+  private val id: String = UUID.randomUUID().toString
 
   /**
    * Sets any configuration options that are required for running a MapReduce job
@@ -104,10 +94,6 @@ class KijiTap(
    * @param conf to which we will add the table uri.
    */
   override def sinkConfInit(flow: FlowProcess[JobConf], conf: JobConf) {
-    // TODO(CHOP-35): Use an output format that writes to HFiles.
-    // Configure the job's output format.
-    conf.setOutputFormat(classOf[NullOutputFormat[_, _]])
-
     // Store the output table.
     conf.set(KijiConfKeys.KIJI_OUTPUT_TABLE_URI, tableUri)
 
@@ -121,7 +107,7 @@ class KijiTap(
    *     the Kiji table being used by this tap to allow jobs that read from or write to the same
    *     table to have different data request options.
    */
-  override def getIdentifier(): String = id
+  override def getIdentifier: String = id
 
   /**
    * Opens any resources required to read from a Kiji table.
@@ -146,7 +132,7 @@ class KijiTap(
     }
     new HadoopTupleEntrySchemeIterator(
         modifiedFlow,
-        this.asInstanceOf[Tap[JobConf, RecordReader[_, _], OutputCollector[_, _]]],
+        this,
         recordReader)
   }
 
@@ -162,12 +148,7 @@ class KijiTap(
    */
   override def openForWrite(
       flow: FlowProcess[JobConf],
-      outputCollector: OutputCollector[_, _]): TupleEntryCollector = {
-    new HadoopTupleEntrySchemeCollector(
-        flow,
-        this.asInstanceOf[Tap[JobConf, RecordReader[_, _], OutputCollector[_, _]]],
-        outputCollector)
-  }
+      outputCollector: Nothing): TupleEntryCollector = null
 
   /**
    * Builds any resources required to read from or write to a Kiji table.
@@ -205,7 +186,7 @@ class KijiTap(
     val uri: KijiURI = KijiURI.newBuilder(tableUri).build()
 
     doAndRelease(Kiji.Factory.open(uri, conf)) { kiji: Kiji =>
-      kiji.getTableNames().contains(uri.getTable())
+      kiji.getTableNames.contains(uri.getTable)
     }
   }
 
@@ -267,11 +248,11 @@ object KijiTap {
     // Try to open the table.
     val table: KijiTable =
         try {
-          kiji.openTable(kijiUri.getTable())
+          kiji.openTable(kijiUri.getTable)
         } catch {
           case e: Exception =>
             throw new InvalidKijiTapException(
-                "Error opening Kiji table: %s\n".format(kijiUri.getTable()) + e.getMessage)
+                "Error opening Kiji table: %s\n".format(kijiUri.getTable) + e.getMessage)
         } finally {
           kiji.release() // Release the Kiji instance.
         }

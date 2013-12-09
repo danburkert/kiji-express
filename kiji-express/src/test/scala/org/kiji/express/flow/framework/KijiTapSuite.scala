@@ -44,7 +44,7 @@ class KijiTapSuite extends KijiSuite {
     val testScheme: KijiScheme = new KijiScheme(
         timeRange = All,
         timestampField = None,
-        inputColumns = Map(
+        icolumns = Map(
             'dummy_field1 -> ColumnInputSpec("searches"),
             'dummy_field2 -> ColumnInputSpec("family:column1")))
 
@@ -60,7 +60,7 @@ class KijiTapSuite extends KijiSuite {
     val testScheme: KijiScheme = new KijiScheme(
         timeRange = All,
         timestampField = None,
-        inputColumns = Map(
+        icolumns = Map(
             'dummy_field1 -> ColumnInputSpec("searches"),
             'dummy_field2 -> ColumnInputSpec("family:column1")))
 
@@ -82,7 +82,7 @@ class KijiTapSuite extends KijiSuite {
     val testScheme: KijiScheme = new KijiScheme(
         timeRange = All,
         timestampField = None,
-        inputColumns = Map(
+        icolumns = Map(
             'dummy_field1 -> ColumnInputSpec("searches"),
             'dummy_field2 -> ColumnInputSpec("family:column1")))
 
@@ -104,7 +104,7 @@ class KijiTapSuite extends KijiSuite {
     val testScheme: KijiScheme = new KijiScheme(
         timeRange = All,
         timestampField = None,
-        inputColumns = Map(
+        icolumns = Map(
             'dummy_field1 -> ColumnInputSpec("searches"),
             'dummy_field2 -> ColumnInputSpec("family:nonexistent")))
 
@@ -124,7 +124,7 @@ class KijiTapSuite extends KijiSuite {
     val testScheme: KijiScheme = new KijiScheme(
         timeRange = All,
         timestampField = None,
-        inputColumns = Map(
+        icolumns = Map(
             'dummy_field1 -> ColumnInputSpec("nonexistent1"),
             'dummy_field2 -> ColumnInputSpec("family:nonexistent2")))
 

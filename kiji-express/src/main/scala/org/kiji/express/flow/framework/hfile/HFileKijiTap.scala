@@ -22,7 +22,6 @@ package org.kiji.express.flow.framework.hfile
 import java.util.UUID
 
 import cascading.flow.FlowProcess
-import cascading.scheme.Scheme
 import cascading.tap.Tap
 import cascading.tap.hadoop.io.HadoopTupleEntrySchemeCollector
 import cascading.tuple.TupleEntryCollector
@@ -36,12 +35,10 @@ import org.apache.hadoop.mapred.RecordReader
 
 import org.kiji.annotations.ApiAudience
 import org.kiji.annotations.ApiStability
-import org.kiji.express.flow.framework.KijiKey
-import org.kiji.express.flow.framework.KijiScheme
-import org.kiji.express.flow.framework.KijiValue
-import org.kiji.mapreduce.framework.KijiConfKeys
+import org.kiji.mapreduce.framework.{HFileKeyValue, KijiConfKeys}
 import org.kiji.mapreduce.impl.HFileWriterContext
 import org.kiji.mapreduce.output.framework.KijiHFileOutputFormat
+import org.apache.hadoop.io.NullWritable
 
 /**
  * A Kiji-specific implementation of a Cascading `Tap`, which defines how data is to be read from
@@ -60,11 +57,9 @@ import org.kiji.mapreduce.output.framework.KijiHFileOutputFormat
 @ApiStability.Experimental
 private[express] class HFileKijiTap(
   tableUri: String,
-  scheme: KijiScheme.HadoopScheme,
+  scheme: HFileKijiScheme,
   hFileOutput: String)
-extends Tap[JobConf, RecordReader[KijiKey, KijiValue], OutputCollector[_, _]](
-        scheme.asInstanceOf[Scheme[JobConf, RecordReader[KijiKey, KijiValue],
-            OutputCollector[_, _], _, _]]) {
+extends Tap[JobConf, Nothing, OutputCollector[HFileKeyValue, NullWritable]] {
 
   /** Unique identifier for this KijiTap instance. */
   private val id: String = UUID.randomUUID().toString
@@ -86,11 +81,9 @@ extends Tap[JobConf, RecordReader[KijiKey, KijiValue], OutputCollector[_, _]](
    * @param recordReader that will read from the desired Kiji table.
    * @return an iterator that reads rows from the desired Kiji table.
    */
-  override def openForRead(
-      flow: FlowProcess[JobConf],
-      recordReader: RecordReader[KijiKey, KijiValue]): TupleEntryIterator = {
-    null
-  }
+  override def openForRead(flow: FlowProcess[JobConf], recordReader: Nothing): TupleEntryIterator =
+    throw new UnsupportedOperationException("HFileKijiTap cannot read HFiles")
+
 
   /**
    * Opens any resources required to write from a Kiji table.
@@ -102,7 +95,8 @@ extends Tap[JobConf, RecordReader[KijiKey, KijiValue], OutputCollector[_, _]](
    */
   override def openForWrite(
       flow: FlowProcess[JobConf],
-      outputCollector: OutputCollector[_, _]): TupleEntryCollector = {
+      outputCollector: OutputCollector[HFileKeyValue, NullWritable]
+  ): TupleEntryCollector = {
     new HadoopTupleEntrySchemeCollector(
       flow,
       this.asInstanceOf[Tap[JobConf, RecordReader[_, _], OutputCollector[_, _]]],

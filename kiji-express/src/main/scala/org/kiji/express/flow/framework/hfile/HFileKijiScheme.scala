@@ -23,20 +23,23 @@ import cascading.flow.FlowProcess
 import cascading.scheme.Scheme
 import cascading.scheme.SinkCall
 import cascading.scheme.SourceCall
+import cascading.tap.Tap
+import cascading.tuple.TupleEntry
 import com.google.common.base.Objects
+import org.apache.hadoop.hbase.HConstants
 import org.apache.hadoop.io.NullWritable
 import org.apache.hadoop.mapred.JobConf
 import org.apache.hadoop.mapred.OutputCollector
-import org.apache.hadoop.mapred.RecordReader
 
-import cascading.tap.Tap
 import org.kiji.annotations.ApiAudience
 import org.kiji.annotations.ApiStability
 import org.kiji.annotations.Inheritance
+import org.kiji.express.flow.ColumnFamilyOutputSpec
 import org.kiji.express.flow.ColumnOutputSpec
+import org.kiji.express.flow.EntityId
+import org.kiji.express.flow.QualifiedColumnOutputSpec
 import org.kiji.express.flow.TimeRange
 import org.kiji.express.flow.framework.KijiScheme
-import org.kiji.express.flow.framework.KijiSinkContext
 import org.kiji.express.flow.framework.KijiSourceContext
 import org.kiji.express.flow.framework.serialization.KijiLocker
 import org.kiji.express.flow.util.Resources.doAndRelease
@@ -79,26 +82,31 @@ private[express] class HFileKijiScheme(
   private[express] val timeRange: TimeRange,
   private[express] val timestampField: Option[Symbol],
   ocolumns: Map[Symbol, ColumnOutputSpec])
-extends HFileKijiScheme.HFileScheme {
+extends Scheme[JobConf, Nothing, OutputCollector[HFileKeyValue, NullWritable],
+    KijiSourceContext, HFileKijiSinkContext] {
 
   /** Serialization workaround. Do not access directly. */
   private[this] val _outputColumns = KijiLocker(ocolumns)
 
-  @transient private[express] lazy val outputColumns = _outputColumns.get
+  private[express] def outputColumns = _outputColumns.get
 
   setSinkFields(KijiScheme.buildSinkFields(_outputColumns.get, timestampField))
 
-  def sourceConfInit(flowProcess: FlowProcess[JobConf], tap: Tap[JobConf, RecordReader[_, _],
-      OutputCollector[HFileKeyValue, NullWritable]], conf: JobConf): Unit =
-    throw new UnsupportedOperationException("Cannot read from HFiles")
+  def sourceConfInit(
+      flowProcess: FlowProcess[JobConf],
+      tap: Tap[JobConf, Nothing, OutputCollector[HFileKeyValue, NullWritable]],
+      conf: JobConf): Unit = throw new UnsupportedOperationException("Cannot read from HFiles")
 
-  def sinkConfInit(flowProcess: FlowProcess[JobConf], tap: Tap[JobConf, RecordReader[_, _],
-      OutputCollector[HFileKeyValue, NullWritable]], conf: JobConf): Unit =
-    throw new UnsupportedOperationException("Cannot read from HFiles")
+  def sinkConfInit(
+      flowProcess: FlowProcess[JobConf],
+      tap: Tap[JobConf, Nothing, OutputCollector[HFileKeyValue, NullWritable]],
+      conf: JobConf
+  ): Unit = throw new UnsupportedOperationException("Cannot read from HFiles")
 
-  def source(flowProcess: FlowProcess[JobConf], sourceCall: SourceCall[KijiSourceContext,
-      RecordReader[_, _]]): Boolean =
-    throw new UnsupportedOperationException("Cannot read from HFiles")
+  def source(
+      flowProcess: FlowProcess[JobConf],
+      sourceCall: SourceCall[KijiSourceContext, Nothing]
+  ): Boolean = throw new UnsupportedOperationException("Cannot read from HFiles")
 
   /**
    * Sets up any resources required for the sink job. This method is called
@@ -119,20 +127,17 @@ extends HFileKijiScheme.HFileScheme {
         val layout = table.getLayout
         sinkCall.setContext(
           HFileKijiSinkContext(
-            outputColumns,
-            timestampField,
             EntityIdFactory.getFactory(table.getLayout),
             new ColumnNameTranslator(layout),
             new CellEncoderProvider(uri, layout, kiji.getSchemaTable,
-              DefaultKijiCellEncoderFactory.get()),
-            HFileKijiScheme.sinkHFile _))
+              DefaultKijiCellEncoderFactory.get())))
       }
     }
   }
 
   /**
    * Converts and writes a Cascading Tuple to a Kiji table. This method is called once
-   * for each row on the cluster.
+   * for each row on the cluster, so it should be kept as light as possible.
    *
    * @param flow is the current Cascading flow being run.
    * @param sinkCall containing the context for this source.
@@ -140,9 +145,43 @@ extends HFileKijiScheme.HFileScheme {
   override def sink(
     flow: FlowProcess[JobConf],
     sinkCall: SinkCall[HFileKijiSinkContext, OutputCollector[HFileKeyValue, NullWritable]]) {
-    KijiScheme.kijiSink(sinkCall)
-  }
 
+    val HFileKijiSinkContext(eidFactory, columnTranslator, encoderProvider) = sinkCall.getContext
+    val tuple: TupleEntry = sinkCall.getOutgoingEntry
+
+    // Get the entityId.
+    val eid: JEntityId = tuple
+        .getObject(KijiScheme.entityIdField.name)
+        .asInstanceOf[EntityId]
+        .toJavaEntityId(eidFactory)
+
+    // Get a timestamp to write the values to, if it was specified by the user.
+    val version: Long = timestampField
+        .map(field => tuple.getLong(field.name))
+        .getOrElse(HConstants.LATEST_TIMESTAMP)
+
+    outputColumns.foreach { case (field, column) =>
+      val value = tuple.getObject(field.name)
+
+      val qualifier: String = column match {
+        case qc: QualifiedColumnOutputSpec => qc.qualifier
+        case cf: ColumnFamilyOutputSpec => tuple.getString(cf.qualifierSelector.name)
+      }
+
+      val kijiColumn = new KijiColumnName(column.family, qualifier)
+      val hbaseColumn = columnTranslator.toHBaseColumnName(kijiColumn)
+      val encoder = encoderProvider.getEncoder(kijiColumn.getFamily, kijiColumn.getQualifier)
+
+      val hfileKV = new HFileKeyValue(
+        eid.getHBaseRowKey,
+        hbaseColumn.getFamily,
+        hbaseColumn.getQualifier,
+        version,
+        encoder.encode(value))
+
+      sinkCall.getOutput.collect(hfileKV, null)
+    }
+  }
 
   /**
    * Cleans up any resources used during the MapReduce job. This method is called
@@ -168,44 +207,6 @@ extends HFileKijiScheme.HFileScheme {
   override def hashCode: Int = Objects.hashCode(outputColumns, timestampField, timeRange)
 }
 
-object HFileKijiScheme {
-
-  type HFileScheme = Scheme[JobConf, RecordReader[_, _],
-    OutputCollector[HFileKeyValue, NullWritable], KijiSourceContext, HFileKijiSinkContext]
-
-  /**
-   * A cell sink implementation for writing cells directly to a HFiles.
-   * @param sinkCall context holder
-   * @param eid entity id of cell
-   * @param family column family of cell
-   * @param qualifier column qualifier of cell
-   * @param version of cell
-   * @param value of cell
-   */
-  def sinkHFile(
-      sinkCall: SinkCall[HFileKijiSinkContext, OutputCollector[HFileKeyValue, NullWritable]],
-      eid: JEntityId,
-      family: String,
-      qualifier: String,
-      version: Long,
-      value: Any): Unit = {
-    val HFileKijiSinkContext(_, _, _, columnTranslator, encoderProvider, _) = sinkCall.getContext
-
-    val kijiColumn = new KijiColumnName(family, qualifier)
-    val hbaseColumn = columnTranslator.toHBaseColumnName(kijiColumn)
-    val encoder = encoderProvider.getEncoder(kijiColumn.getFamily, kijiColumn.getQualifier)
-
-    val hfileKV = new HFileKeyValue(
-        eid.getHBaseRowKey,
-        hbaseColumn.getFamily,
-        hbaseColumn.getQualifier,
-        version,
-        encoder.encode(value))
-
-    sinkCall.getOutput.collect(hfileKV, null)
-  }
-}
-
 /**
  * Context housing information necessary for the scheme to interact
  * with the Kiji table.
@@ -214,11 +215,6 @@ object HFileKijiScheme {
 @ApiStability.Experimental
 @Inheritance.Sealed
 private[express] case class HFileKijiSinkContext (
-    columns: Map[Symbol, ColumnOutputSpec],
-    timestampField: Option[Symbol],
     eidFactory: EntityIdFactory,
     columnTranslator: ColumnNameTranslator,
-    encoderProvider: CellEncoderProvider,
-    cellSink: (SinkCall[this.type, OutputCollector[HFileKeyValue, NullWritable]], JEntityId,
-        String, String, Long, Any) => Any
-) extends KijiSinkContext
+    encoderProvider: CellEncoderProvider)

@@ -31,10 +31,7 @@ import com.google.common.base.Objects
 import org.apache.commons.codec.binary.Base64
 import org.apache.commons.lang.SerializationUtils
 import org.apache.hadoop.hbase.HConstants
-import org.apache.hadoop.mapred.JobConf
-import org.apache.hadoop.mapred.RecordReader
-import org.slf4j.Logger
-import org.slf4j.LoggerFactory
+import org.apache.hadoop.mapred.{JobConf, RecordReader}
 
 import org.kiji.annotations.ApiAudience
 import org.kiji.annotations.ApiStability
@@ -97,15 +94,16 @@ class KijiScheme(
     private[express] val timestampField: Option[Symbol],
     icolumns: Map[Symbol, ColumnInputSpec] = Map(),
     ocolumns: Map[Symbol, ColumnOutputSpec] = Map())
-extends KijiScheme.HadoopScheme {
+extends Scheme[JobConf, RecordReader[KijiKey, KijiValue], Nothing, KijiSourceContext,
+    DirectKijiSinkContext] {
   import KijiScheme._
 
   /** Serialization workaround. Do not access directly. */
   private[this] val _inputColumns = KijiLocker(icolumns)
   private[this] val _outputColumns = KijiLocker(ocolumns)
 
-  @transient private[express] lazy val inputColumns = _inputColumns.get
-  @transient private[express] lazy val outputColumns = _outputColumns.get
+  private[express] def inputColumns = _inputColumns.get
+  private[express] def outputColumns = _outputColumns.get
 
   // Including output column keys here because we might need to read back outputs during test
   // TODO (EXP-250): Ideally we should include outputColumns.keys here only during tests.
@@ -231,11 +229,8 @@ extends KijiScheme.HadoopScheme {
       // Set the sink context to an opened KijiTableWriter.
         sinkCall.setContext(
           DirectKijiSinkContext(
-            outputColumns,
-            timestampField,
             EntityIdFactory.getFactory(table.getLayout),
-            table.getWriterFactory.openBufferedWriter(),
-            KijiScheme.sinkDirect))
+            table.getWriterFactory.openBufferedWriter()))
       }
     }
   }
@@ -250,7 +245,30 @@ extends KijiScheme.HadoopScheme {
   override def sink(
       flow: FlowProcess[JobConf],
       sinkCall: SinkCall[DirectKijiSinkContext, Nothing]) {
-    KijiScheme.kijiSink(sinkCall)
+    val DirectKijiSinkContext(eidFactory, writer) = sinkCall.getContext
+    val tuple: TupleEntry = sinkCall.getOutgoingEntry
+
+    // Get the entityId.
+    val eid: JEntityId = tuple
+        .getObject(KijiScheme.entityIdField.name)
+        .asInstanceOf[EntityId]
+        .toJavaEntityId(eidFactory)
+
+    // Get a timestamp to write the values to, if it was specified by the user.
+    val version: Long = timestampField
+        .map(field => tuple.getLong(field.name))
+        .getOrElse(HConstants.LATEST_TIMESTAMP)
+
+    outputColumns.foreach { case (field, column) =>
+      val value = tuple.getObject(field.name)
+
+      val qualifier: String = column match {
+        case qc: QualifiedColumnOutputSpec => qc.qualifier
+        case cf: ColumnFamilyOutputSpec => tuple.getString(cf.qualifierSelector.name)
+      }
+
+      writer.put(eid, column.family, qualifier, version, value)
+    }
   }
 
   /**
@@ -296,11 +314,6 @@ extends KijiScheme.HadoopScheme {
 @ApiAudience.Framework
 @ApiStability.Experimental
 object KijiScheme {
-
-  type HadoopScheme = Scheme[JobConf, RecordReader[KijiKey, KijiValue],
-      Nothing, KijiSourceContext, DirectKijiSinkContext]
-
-  private val logger: Logger = LoggerFactory.getLogger(classOf[KijiScheme])
 
   /** Hadoop mapred counter group for KijiExpress. */
   private[express] val counterGroupName = "kiji-express"
@@ -422,58 +435,6 @@ object KijiScheme {
   }
 
   /**
-   * Extracts a KijiCell from the output tuple, and passes the componenets to `sinkCell`.
-   * @tparam Context type of context object
-   * @tparam Output type of sink output
-   * @param sinkCall context of sink
-   */
-  def kijiSink[Context <: KijiSinkContext, Output](sinkCall: SinkCall[Context, Output]) = {
-    val context = sinkCall.getContext
-    val tuple: TupleEntry = sinkCall.getOutgoingEntry
-
-    // Get the entityId.
-    val entityId: JEntityId = tuple
-        .getObject(KijiScheme.entityIdField.name)
-        .asInstanceOf[EntityId]
-        .toJavaEntityId(context.eidFactory)
-
-    // Get a timestamp to write the values to, if it was specified by the user.
-    val timestamp: Long = context.timestampField
-        .map(field => tuple.getLong(field.name))
-        .getOrElse(HConstants.LATEST_TIMESTAMP)
-
-    context.columns.foreach { case (field, column) =>
-      val value = tuple.getObject(field.name)
-
-      val qualifier: String = column match {
-        case qc: QualifiedColumnOutputSpec => qc.qualifier
-        case cf: ColumnFamilyOutputSpec => tuple.getString(cf.qualifierSelector.name)
-      }
-
-      context.cellSink(context, entityId, column.family, qualifier, timestamp, column.encode(value))
-    }
-  }
-
-  /**
-   * A CellSink implementation for writing cells directly to a KijiTable.
-   * @param sinkCall context holder
-   * @param eid entity id of cell
-   * @param family column family of cell
-   * @param qualifier column qualifier of cell
-   * @param version of cell
-   * @param value of cell
-   */
-  def sinkDirect(
-      sinkCall: SinkCall[DirectKijiSinkContext, Nothing],
-      eid: JEntityId,
-      family: String,
-      qualifier: String,
-      version: Long,
-      value: Any): Unit = {
-    sinkCall.getContext.writer.put(eid, family, qualifier, version, value)
-  }
-
-  /**
    * Builds a data request out of the timerange and list of column requests.
    *
    * @param timeRange of cells to retrieve.
@@ -548,16 +509,6 @@ object KijiScheme {
 }
 
 /**
- * A SinkContext for writing to a Kiji table.
- */
-abstract class KijiSinkContext {
-  def columns: Map[Symbol, ColumnOutputSpec]
-  def timestampField: Option[Symbol]
-  def eidFactory: EntityIdFactory
-  def cellSink: (this.type, JEntityId, String, String, Long, Any) => Any
-}
-
-/**
  * Container for the table writer and Kiji table layout required during a sink
  * operation to write the output of a map reduce task back to a Kiji table.
  * This is configured during the sink prepare operation.
@@ -565,10 +516,4 @@ abstract class KijiSinkContext {
 @ApiAudience.Private
 @ApiStability.Experimental
 @Inheritance.Sealed
-case class DirectKijiSinkContext(
-    columns: Map[Symbol, ColumnOutputSpec],
-    timestampField: Option[Symbol],
-    eidFactory: EntityIdFactory,
-    writer: KijiBufferedWriter,
-    cellSink: (SinkCall[this.type, Nothing], JEntityId, String, String, Long, Any) => Any)
-    extends KijiSinkContext
+case class DirectKijiSinkContext(eidFactory: EntityIdFactory, writer: KijiBufferedWriter)

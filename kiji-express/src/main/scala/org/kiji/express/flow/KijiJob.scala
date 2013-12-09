@@ -92,7 +92,7 @@ class KijiJob(args: Args = Args(Nil))
   }
 
   override def buildFlow(implicit mode : Mode): Flow[_] = {
-    modifyFlowDef()
+    checkpointHFileSink()
     val flow = super.buildFlow
     // Here we set the strategy to change the sink steps since we are dumping to HFiles.
     flow.setFlowStepStrategy(HFileFlowStepStrategy)
@@ -101,8 +101,10 @@ class KijiJob(args: Args = Args(Nil))
 
   /**
    * Modifies the flowDef to include an explicit checkpoint when writing HFiles, if necessary.
+   * Checkpoints are necessary when the final stage of the job writing to an HFile tap includes a
+   * reducer, i.e., if it is not a map-only stage.
    */
-  private def modifyFlowDef(): Unit = {
+  private def checkpointHFileSink(): Unit = {
     val sinks: java.util.Map[String, Tap[_, _, _]] = flowDef.getSinks
     val tails: java.util.List[Pipe] = flowDef.getTails
 

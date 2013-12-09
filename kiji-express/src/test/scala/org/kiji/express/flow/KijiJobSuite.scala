@@ -43,7 +43,7 @@ import org.kiji.schema.layout.KijiTableLayout
 class KijiJobSuite extends KijiSuite {
   val avroLayout: KijiTableLayout = layout("layout/avro-types.json")
   val uri: String = doAndRelease(makeTestKijiTable(avroLayout)) { table: KijiTable =>
-    table.getURI().toString()
+    table.getURI.toString
   }
 
   val rawInputs: List[(Long, String)] = List(

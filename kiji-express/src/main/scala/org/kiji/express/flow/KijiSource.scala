@@ -19,8 +19,6 @@
 
 package org.kiji.express.flow
 
-import scala.collection.JavaConverters.asScalaIteratorConverter
-import scala.collection.JavaConverters.mapAsJavaMapConverter
 import scala.collection.mutable.Buffer
 
 import java.io.OutputStream
@@ -35,15 +33,7 @@ import cascading.tuple.Fields
 import cascading.tuple.Tuple
 import cascading.tuple.TupleEntry
 import com.google.common.base.Objects
-import com.twitter.scalding.AccessMode
-import com.twitter.scalding.HadoopTest
-import com.twitter.scalding.Hdfs
-import com.twitter.scalding.Local
-import com.twitter.scalding.Mode
-import com.twitter.scalding.Read
-import com.twitter.scalding.Source
-import com.twitter.scalding.Test
-import com.twitter.scalding.Write
+import com.twitter.scalding.{HadoopSchemeInstance, AccessMode, HadoopTest, Hdfs, Local, Mode, Read, Source, Test, Write}
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.hbase.HBaseConfiguration
 import org.apache.hadoop.mapred.JobConf
@@ -52,8 +42,7 @@ import org.apache.hadoop.mapred.RecordReader
 
 import org.kiji.annotations.ApiAudience
 import org.kiji.annotations.ApiStability
-import org.kiji.express.flow.framework.{DirectKijiSinkContext, KijiScheme, KijiTap,
-LocalKijiScheme, LocalKijiTap}
+import org.kiji.express.flow.framework.{DirectKijiSinkContext, LocalKijiScheme, LocalKijiTap, KijiScheme, KijiTap}
 import org.kiji.express.flow.util.Resources._
 import org.kiji.mapreduce.framework.KijiConfKeys
 import org.kiji.schema.EntityIdFactory
@@ -109,19 +98,12 @@ final class KijiSource private[express] (
 ) extends Source {
   import KijiSource._
 
-  private type HadoopScheme = Scheme[JobConf, RecordReader[_, _], OutputCollector[_, _], _, _]
-
   /** The URI of the target Kiji table. */
   private val tableUri: KijiURI = KijiURI.newBuilder(tableAddress).build()
 
   /** A Kiji scheme intended to be used with Scalding/Cascading's hdfs mode. */
   private val directScheme: KijiScheme =
-      new KijiScheme(
-          timeRange,
-          timestampField,
-          inputColumns,
-          outputColumns
-      )
+      new KijiScheme(timeRange, timestampField, inputColumns, outputColumns)
 
   /** A Kiji scheme intended to be used with Scalding/Cascading's local mode. */
   private val localKijiScheme: LocalKijiScheme =
@@ -131,9 +113,7 @@ final class KijiSource private[express] (
    * Creates a Scheme that writes to/reads from a Kiji table for usage with
    * the hadoop runner.
    */
-  override val hdfsScheme: HadoopScheme = directScheme
-      // This cast is required due to Scheme being defined with invariant type parameters.
-      .asInstanceOf[HadoopScheme]
+  override val hdfsScheme = HadoopSchemeInstance(directScheme)
 
   /**
    * Creates a Scheme that writes to/reads from a Kiji table for usage with
@@ -161,7 +141,7 @@ final class KijiSource private[express] (
       testingInputColumnsFromReads ++ testingInputColumnsFromWrites
     }
 
-    val tap: Tap[_, _, _] = mode match {
+    mode match {
       // Production taps.
       case Hdfs(_,_) => new KijiTap(tableUri, directScheme).asInstanceOf[Tap[_, _, _]]
       case Local(_) => new LocalKijiTap(tableUri, localKijiScheme).asInstanceOf[Tap[_, _, _]]
@@ -211,37 +191,31 @@ final class KijiSource private[express] (
             new LocalKijiTap(tableUri, scheme).asInstanceOf[Tap[_, _, _]]
           }
         }
-      }
 
       // Delegate any other tap types to Source's default behaviour.
       case _ => super.createTap(readOrWrite)(mode)
     }
-
-    return tap
   }
 
- override def toString: String = {
-   Objects
-       .toStringHelper(this)
-       .add("tableAddress", tableAddress)
-       .add("timeRange", timeRange)
-       .add("timestampField", timestampField)
-       .add("inputColumns", inputColumns)
-       .add("outputColumns", outputColumns)
-       .toString
-  }
+  override def toString: String =
+    Objects
+        .toStringHelper(this)
+        .add("tableAddress", tableAddress)
+        .add("timeRange", timeRange)
+        .add("timestampField", timestampField)
+        .add("inputColumns", inputColumns)
+        .add("outputColumns", outputColumns)
+        .toString
 
-  override def equals(other: Any): Boolean = {
-    other match {
-      case source: KijiSource => {
-        Objects.equal(tableAddress, source.tableAddress) &&
-        Objects.equal(inputColumns, source.inputColumns) &&
-        Objects.equal(outputColumns, source.outputColumns) &&
-        Objects.equal(timestampField, source.timestampField) &&
-        Objects.equal(timeRange, source.timeRange)
-      }
-      case _ => false
+  override def equals(other: Any): Boolean = other match {
+    case source: KijiSource => {
+      Objects.equal(tableAddress, source.tableAddress) &&
+      Objects.equal(inputColumns, source.inputColumns) &&
+      Objects.equal(outputColumns, source.outputColumns) &&
+      Objects.equal(timestampField, source.timestampField) &&
+      Objects.equal(timeRange, source.timeRange)
     }
+    case _ => false
   }
 
   override def hashCode(): Int =
@@ -304,14 +278,14 @@ private[express] object KijiSource {
                   cell.family,
                   cell.qualifier,
                   cell.version,
-                  cell.datum
-              )
+                  cell.datum)
             }
           }
         }
       }
     }
   }
+
 
   private[express] def newGetAllData(col: ColumnInputSpec): ColumnInputSpec = {
     ColumnInputSpec(
@@ -346,8 +320,7 @@ private[express] object KijiSource {
    * @param buffer to fill with post-job table rows for tests.
    * @param timeRange of timestamps to read from each column.
    * @param timestampField is the name of a tuple field that will contain cell timestamp when the
-   *     source is used for writing. Specify the empty field name to write all
-   *     cells at the current time.
+   *     source is used for writing. Specify `None` to write all cells at the current time.
    * @param inputColumns is a map of Scalding field name to ColumnInputSpec.
    * @param outputColumns is a map of ColumnOutputSpec to Scalding field name.
    */
@@ -479,8 +452,7 @@ private[express] object KijiSource {
    * used during tests.
    *
    * @param timestampField is the name of a tuple field that will contain cell timestamp when the
-   *     source is used for writing. Specify the empty field name to write all cells at the current
-   *     time.
+   *     source is used for writing. Specify `None` to write all cells at the current time.
    * @param inputColumns Scalding field name to column input spec mapping.
    * @param outputColumns Scalding field name to column output spec mapping.
    */

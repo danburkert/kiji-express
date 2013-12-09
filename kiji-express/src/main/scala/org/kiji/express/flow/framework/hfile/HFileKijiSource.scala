@@ -23,6 +23,7 @@ import java.lang.UnsupportedOperationException
 
 import cascading.tap.Tap
 import com.twitter.scalding.AccessMode
+import com.twitter.scalding.HadoopSchemeInstance
 import com.twitter.scalding.HadoopTest
 import com.twitter.scalding.Hdfs
 import com.twitter.scalding.Mode
@@ -33,7 +34,6 @@ import org.kiji.annotations.ApiAudience
 import org.kiji.annotations.ApiStability
 import org.kiji.express.flow.ColumnOutputSpec
 import org.kiji.express.flow.TimeRange
-import org.kiji.express.flow.framework.KijiScheme
 
 /**
  * A read or write view of a Kiji table.
@@ -77,14 +77,14 @@ case class HFileKijiSource private[express] (
     columns: Map[Symbol, ColumnOutputSpec]
 ) extends Source {
 
+  private val hfileScheme = new HFileKijiScheme(timeRange, timestampField, columns)
+
   /**
    * Creates a Scheme that writes to/reads from a Kiji table for usage with
    * the hadoop runner.
    */
-  override val hdfsScheme: KijiScheme.HadoopScheme =
-    new HFileKijiScheme(timeRange, timestampField, columns)
-      // This cast is required due to Scheme being defined with invariant type parameters.
-      .asInstanceOf[KijiScheme.HadoopScheme]
+  override val hdfsScheme =
+    HadoopSchemeInstance(hfileScheme)
 
   /**
    * Create a connection to the physical data source (also known as a Tap in Cascading)
@@ -96,12 +96,12 @@ case class HFileKijiSource private[express] (
    */
   override def createTap(readOrWrite: AccessMode)(implicit mode: Mode): Tap[_, _, _] =  mode match {
     // Production taps.
-    case Hdfs(_, _) => new HFileKijiTap(tableAddress, hdfsScheme, hFileOutput)
+    case Hdfs(_, _) => new HFileKijiTap(tableAddress, hfileScheme, hFileOutput)
 
     // Test taps.
     case HadoopTest(conf, buffers) => {
       readOrWrite match {
-        case Write => new HFileKijiTap(tableAddress, hdfsScheme, hFileOutput)
+        case Write => new HFileKijiTap(tableAddress, hfileScheme, hFileOutput)
         case _ => throw new UnsupportedOperationException("Read unsupported")
       }
     }
