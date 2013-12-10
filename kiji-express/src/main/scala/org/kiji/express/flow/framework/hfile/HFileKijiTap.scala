@@ -36,10 +36,11 @@ import org.apache.hadoop.mapred.RecordReader
 
 import org.kiji.annotations.ApiAudience
 import org.kiji.annotations.ApiStability
-import org.kiji.express.flow.framework.KijiScheme
+import org.kiji.express.flow.framework.KijiTap
 import org.kiji.mapreduce.framework.KijiConfKeys
 import org.kiji.mapreduce.impl.HFileWriterContext
 import org.kiji.mapreduce.output.framework.KijiHFileOutputFormat
+import org.kiji.schema.KijiURI
 
 /**
  * A Kiji-specific implementation of a Cascading `Tap`, which defines how data is to be read from
@@ -57,15 +58,14 @@ import org.kiji.mapreduce.output.framework.KijiHFileOutputFormat
 @ApiAudience.Framework
 @ApiStability.Experimental
 private[express] class HFileKijiTap(
-  private val tableUri: String,
-  private val scheme: KijiScheme.HadoopScheme,
-  private val hFileOutput: String)
+  private[express] val tableUri: String,
+  private[express] val scheme: HFileKijiScheme,
+  private[express] val hFileOutput: String)
     extends Tap[JobConf, RecordReader[_, _], OutputCollector[_, _]](
-        scheme.asInstanceOf[Scheme[JobConf, RecordReader[_, _],
-            OutputCollector[_, _], _, _]]) {
+        scheme.asInstanceOf[Scheme[JobConf, RecordReader[_, _], OutputCollector[_, _], _, _]]) {
 
   /** Unique identifier for this KijiTap instance. */
-  private val id: String = UUID.randomUUID().toString()
+  private val id: String = UUID.randomUUID().toString
 
   /**
    * Provides a string representing the resource this `Tap` instance represents.
@@ -74,8 +74,7 @@ private[express] class HFileKijiTap(
    *     the Kiji table being used by this tap to allow jobs that read from or write to the same
    *     table to have different data request options.
    */
-  override def getIdentifier(): String = id
-
+  override def getIdentifier: String = id
 
   /**
    * Opens any resources required to read from a Kiji table.
@@ -107,6 +106,7 @@ private[express] class HFileKijiTap(
         this.asInstanceOf[Tap[JobConf, RecordReader[_, _], OutputCollector[_, _]]],
         outputCollector)
   }
+
   /**
    * Builds any resources required to read from or write to a Kiji table.
    *
@@ -116,9 +116,8 @@ private[express] class HFileKijiTap(
    * @return true if required resources were created successfully.
    * @throws UnsupportedOperationException always.
    */
-  override def createResource(conf: JobConf): Boolean = {
+  override def createResource(conf: JobConf): Boolean =
     throw new UnsupportedOperationException("KijiTap does not support creating tables for you.")
-  }
 
   /**
    * Deletes any unnecessary resources used to read from or write to a Kiji table.
@@ -129,9 +128,8 @@ private[express] class HFileKijiTap(
    * @return true if superfluous resources were deleted successfully.
    * @throws UnsupportedOperationException always.
    */
-  override def deleteResource(conf: JobConf): Boolean = {
+  override def deleteResource(conf: JobConf): Boolean =
     throw new UnsupportedOperationException("KijiTap does not support deleting tables for you.")
-  }
 
   /**
    * Gets the time that the target Kiji table was last modified.
@@ -149,9 +147,7 @@ private[express] class HFileKijiTap(
    * @param conf containing settings for this flow.
    * @return true if the target Kiji table exists.
    */
-  override def resourceExists(conf: JobConf): Boolean = {
-    true
-  }
+  override def resourceExists(conf: JobConf): Boolean = true
 
   /**
    * Sets any configuration options that are required for running a MapReduce job
@@ -162,13 +158,24 @@ private[express] class HFileKijiTap(
    * @param conf to which we will add the table uri.
    */
   override def sinkConfInit(flow: FlowProcess[JobConf], conf: JobConf) {
-    FileOutputFormat.setOutputPath(conf, new Path(hFileOutput))
+    FileOutputFormat.setOutputPath(conf, new Path(hFileOutput, "hfiles"))
     DeprecatedOutputFormatWrapper.setOutputFormat(classOf[KijiHFileOutputFormat], conf)
-    val hfContext = classOf[HFileWriterContext].getName()
+    val hfContext = classOf[HFileWriterContext].getName
     conf.set(KijiConfKeys.KIJI_TABLE_CONTEXT_CLASS, hfContext)
     // Store the output table.
     conf.set(KijiConfKeys.KIJI_OUTPUT_TABLE_URI, tableUri)
 
     super.sinkConfInit(flow, conf)
+  }
+
+  /**
+   * Checks whether the instance, tables, and columns this tap uses can be accessed.
+   *
+   * @throws KijiExpressValidationException if the tables and columns are not accessible when this
+   *    is called.
+   */
+  private[express] def validate(conf: JobConf): Unit = {
+    val kijiUri: KijiURI = KijiURI.newBuilder(tableUri).build()
+    KijiTap.validate(kijiUri, Map(), scheme.outputColumns, conf)
   }
 }

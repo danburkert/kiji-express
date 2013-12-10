@@ -115,7 +115,7 @@ class FlowModuleSuite extends FunSuite {
         tableUri = KijiURI.newBuilder(tableURI).build(),
         timeRange = All,
         timestampField = None,
-        inputColumns = Map("word" -> QualifiedColumnInputSpec("info", "word")))
+        icolumns = Map("word" -> QualifiedColumnInputSpec("info", "word")))
 
     assert(expectedScheme === input.hdfsScheme)
   }
@@ -195,7 +195,7 @@ class FlowModuleSuite extends FunSuite {
         tableUri = KijiURI.newBuilder(tableURI).build(),
         timeRange = All,
         timestampField = None,
-        outputColumns = Map("words" -> QualifiedColumnOutputSpec.builder
+        ocolumns = Map("words" -> QualifiedColumnOutputSpec.builder
             .withColumn("info", "words")
             .build))
     assert(expectedScheme === output.hdfsScheme)
@@ -211,7 +211,7 @@ class FlowModuleSuite extends FunSuite {
         tableUri = KijiURI.newBuilder(tableURI).build(),
         timeRange = All,
         timestampField = Some('time),
-        outputColumns = Map("words" -> QualifiedColumnOutputSpec.builder
+        ocolumns = Map("words" -> QualifiedColumnOutputSpec.builder
             .withColumn("info", "words")
             .build))
     assert(expectedScheme === output.hdfsScheme)
