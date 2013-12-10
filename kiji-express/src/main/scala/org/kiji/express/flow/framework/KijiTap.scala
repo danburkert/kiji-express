@@ -24,13 +24,12 @@ import java.util.UUID
 import cascading.flow.FlowProcess
 import cascading.flow.hadoop.HadoopFlowProcess
 import cascading.tap.Tap
-import cascading.tap.hadoop.io.HadoopTupleEntrySchemeIterator
+import cascading.tap.hadoop.io.{HadoopTupleEntrySchemeCollector, HadoopTupleEntrySchemeIterator}
 import cascading.tuple.TupleEntryCollector
 import cascading.tuple.TupleEntryIterator
 import com.google.common.base.Objects
 import org.apache.hadoop.conf.Configuration
-import org.apache.hadoop.mapred.JobConf
-import org.apache.hadoop.mapred.RecordReader
+import org.apache.hadoop.mapred.{OutputCollector, JobConf, RecordReader}
 
 import org.kiji.annotations.ApiAudience
 import org.kiji.annotations.ApiStability
@@ -59,7 +58,7 @@ import org.kiji.schema.layout.KijiTableLayout
 @ApiAudience.Framework
 @ApiStability.Experimental
 class KijiTap(uri: KijiURI, private val scheme: KijiScheme)
-    extends Tap[JobConf, RecordReader[KijiKey, KijiValue], Nothing](scheme) {
+    extends Tap[JobConf, RecordReader[KijiKey, KijiValue], OutputCollector[_, _]](scheme) {
 
   /** Address of the table to read from or write to. */
   private val tableUri: String = uri.toString
@@ -148,7 +147,12 @@ class KijiTap(uri: KijiURI, private val scheme: KijiScheme)
    */
   override def openForWrite(
       flow: FlowProcess[JobConf],
-      outputCollector: Nothing): TupleEntryCollector = null
+      outputCollector: OutputCollector[_, _]): TupleEntryCollector =
+    new HadoopTupleEntrySchemeCollector(
+        flow,
+        this.asInstanceOf[Tap[JobConf, RecordReader[_, _], OutputCollector[_, _]]],
+        outputCollector)
+
 
   /**
    * Builds any resources required to read from or write to a Kiji table.

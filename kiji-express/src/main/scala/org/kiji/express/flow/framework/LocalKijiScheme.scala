@@ -19,7 +19,7 @@
 
 package org.kiji.express.flow.framework
 
-import java.io.InputStream
+import java.io.{OutputStream, InputStream}
 import java.util.HashMap
 import java.util.{Map => JMap}
 import java.util.Properties
@@ -50,15 +50,8 @@ import org.kiji.express.flow.util.GenericCellSpecs
 import org.kiji.express.flow.util.Resources._
 import org.kiji.express.flow.util.SpecificCellSpecs
 import org.kiji.mapreduce.framework.KijiConfKeys
-import org.kiji.schema.EntityIdFactory
-import org.kiji.schema.Kiji
-import org.kiji.schema.KijiColumnName
-import org.kiji.schema.KijiRowData
-import org.kiji.schema.KijiRowScanner
-import org.kiji.schema.KijiTable
-import org.kiji.schema.KijiURI
+import org.kiji.schema.{EntityId => JEntityId, KijiTableReader, EntityIdFactory, Kiji, KijiColumnName, KijiRowData, KijiRowScanner, KijiTable, KijiURI}
 import org.kiji.schema.layout.CellSpec
-import org.kiji.schema.{EntityId => JEntityId}
 
 /**
  * A local version of [[org.kiji.express.flow.framework.KijiScheme]] that is meant to be used with
@@ -103,7 +96,7 @@ private[express] case class LocalKijiScheme(
     private[express] val timestampField: Option[Symbol],
     private[express] val inputColumns: Map[Symbol, ColumnInputSpec] = Map(),
     private[express] val outputColumns: Map[Symbol, ColumnOutputSpec] = Map())
-extends Scheme[Properties, InputStream, Nothing, InputContext, DirectKijiSinkContext] {
+extends Scheme[Properties, InputStream, OutputStream, InputContext, DirectKijiSinkContext] {
 
   /** Set the fields that should be in a tuple when this source is used for reading and writing. */
   setSourceFields(KijiScheme.buildSourceFields(inputColumns.keys ++ outputColumns.keys))
@@ -119,7 +112,7 @@ extends Scheme[Properties, InputStream, Nothing, InputContext, DirectKijiSinkCon
    */
   override def sourceConfInit(
       process: FlowProcess[Properties],
-      tap: Tap[Properties, InputStream, Nothing],
+      tap: Tap[Properties, InputStream, OutputStream],
       conf: Properties) {
     // No-op. Setting options in a java Properties object is not going to help us read from
     // a Kiji table.
@@ -142,17 +135,16 @@ extends Scheme[Properties, InputStream, Nothing, InputContext, DirectKijiSinkCon
 
     // Build the input context.
     withKijiTable(kijiUri, conf) { table: KijiTable =>
-      doAndClose {
+      val request = KijiScheme.buildRequest(timeRange, inputColumns.values)
+      val reader = {
         val allCellSpecs: JMap[KijiColumnName, CellSpec] = new HashMap[KijiColumnName, CellSpec]()
         allCellSpecs.putAll(GenericCellSpecs(table))
         allCellSpecs.putAll(SpecificCellSpecs.buildCellSpecs(table.getLayout, inputColumns).asJava)
         table.getReaderFactory.openTableReader(allCellSpecs)
-      } { reader =>
-        val request = KijiScheme.buildRequest(timeRange, inputColumns.values)
-        val scanner = reader.getScanner(request)
-        val context = InputContext(scanner, scanner.iterator.asScala)
-        sourceCall.setContext(context)
       }
+      val scanner = reader.getScanner(request)
+      val context = InputContext(reader, scanner, scanner.iterator.asScala)
+      sourceCall.setContext(context)
     }
   }
 
@@ -192,6 +184,7 @@ extends Scheme[Properties, InputStream, Nothing, InputContext, DirectKijiSinkCon
       sourceCall: SourceCall[InputContext, InputStream]) {
     val context: InputContext = sourceCall.getContext
     context.scanner.close()
+    context.reader.close()
 
     // Set the context to null so that we no longer hold any references to it.
     sourceCall.setContext(null)
@@ -199,7 +192,7 @@ extends Scheme[Properties, InputStream, Nothing, InputContext, DirectKijiSinkCon
 
   def sinkConfInit(
       flowProcess: FlowProcess[Properties],
-      tap: Tap[Properties, InputStream,  Nothing],
+      tap: Tap[Properties, InputStream, OutputStream],
       conf: Properties): Unit = {
   }
 
@@ -211,7 +204,7 @@ extends Scheme[Properties, InputStream, Nothing, InputContext, DirectKijiSinkCon
    */
   override def sinkPrepare(
       flow: FlowProcess[Properties],
-      sinkCall: SinkCall[DirectKijiSinkContext, Nothing]) {
+      sinkCall: SinkCall[DirectKijiSinkContext, OutputStream]) {
 
     val conf: JobConf =
       HadoopUtil.createJobConf(flow.getConfigCopy, new JobConf(HBaseConfiguration.create()))
@@ -237,7 +230,7 @@ extends Scheme[Properties, InputStream, Nothing, InputContext, DirectKijiSinkCon
    */
   override def sink(
       process: FlowProcess[Properties],
-      sinkCall: SinkCall[DirectKijiSinkContext, Nothing]) {
+      sinkCall: SinkCall[DirectKijiSinkContext, OutputStream]) {
     val DirectKijiSinkContext(eidFactory, writer) = sinkCall.getContext
     val tuple: TupleEntry = sinkCall.getOutgoingEntry
 
@@ -272,7 +265,7 @@ extends Scheme[Properties, InputStream, Nothing, InputContext, DirectKijiSinkCon
    */
   override def sinkCleanup(
       process: FlowProcess[Properties],
-      sinkCall: SinkCall[DirectKijiSinkContext, Nothing]) {
+      sinkCall: SinkCall[DirectKijiSinkContext, OutputStream]) {
     val writer = sinkCall.getContext.writer
     writer.flush()
     writer.close()
@@ -290,4 +283,7 @@ extends Scheme[Properties, InputStream, Nothing, InputContext, DirectKijiSinkCon
 @ApiAudience.Private
 @ApiStability.Experimental
 @Inheritance.Sealed
-private[express] case class InputContext(scanner: KijiRowScanner, iterator: Iterator[KijiRowData])
+private[express] final case class InputContext(
+    reader: KijiTableReader,
+    scanner: KijiRowScanner,
+    iterator: Iterator[KijiRowData])

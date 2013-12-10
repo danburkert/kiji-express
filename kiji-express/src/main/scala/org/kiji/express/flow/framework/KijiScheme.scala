@@ -31,7 +31,7 @@ import com.google.common.base.Objects
 import org.apache.commons.codec.binary.Base64
 import org.apache.commons.lang.SerializationUtils
 import org.apache.hadoop.hbase.HConstants
-import org.apache.hadoop.mapred.{JobConf, RecordReader}
+import org.apache.hadoop.mapred.{OutputCollector, JobConf, RecordReader}
 
 import org.kiji.annotations.ApiAudience
 import org.kiji.annotations.ApiStability
@@ -94,7 +94,7 @@ class KijiScheme(
     private[express] val timestampField: Option[Symbol],
     icolumns: Map[Symbol, ColumnInputSpec] = Map(),
     ocolumns: Map[Symbol, ColumnOutputSpec] = Map())
-extends Scheme[JobConf, RecordReader[KijiKey, KijiValue], Nothing, KijiSourceContext,
+extends Scheme[JobConf, RecordReader[KijiKey, KijiValue], OutputCollector[_, _], KijiSourceContext,
     DirectKijiSinkContext] {
   import KijiScheme._
 
@@ -121,7 +121,7 @@ extends Scheme[JobConf, RecordReader[KijiKey, KijiValue], Nothing, KijiSourceCon
    */
   override def sourceConfInit(
       flow: FlowProcess[JobConf],
-      tap: Tap[JobConf, RecordReader[KijiKey, KijiValue], Nothing],
+      tap: Tap[JobConf, RecordReader[KijiKey, KijiValue], OutputCollector[_, _]],
       conf: JobConf) {
     // Build a data request.
     val request: KijiDataRequest = buildRequest(timeRange, inputColumns.values)
@@ -205,7 +205,7 @@ extends Scheme[JobConf, RecordReader[KijiKey, KijiValue], Nothing, KijiSourceCon
    */
   override def sinkConfInit(
       flow: FlowProcess[JobConf],
-      tap: Tap[JobConf, RecordReader[KijiKey, KijiValue], Nothing],
+      tap: Tap[JobConf, RecordReader[KijiKey, KijiValue], OutputCollector[_, _]],
       conf: JobConf) {
     // No-op since no configuration parameters need to be set to encode data for Kiji.
   }
@@ -219,7 +219,7 @@ extends Scheme[JobConf, RecordReader[KijiKey, KijiValue], Nothing, KijiSourceCon
    */
   override def sinkPrepare(
       flow: FlowProcess[JobConf],
-      sinkCall: SinkCall[DirectKijiSinkContext, Nothing]) {
+      sinkCall: SinkCall[DirectKijiSinkContext, OutputCollector[_, _]]) {
 
     val conf = flow.getConfigCopy
     val uri: KijiURI = KijiURI.newBuilder(conf.get(KijiConfKeys.KIJI_OUTPUT_TABLE_URI)).build()
@@ -244,7 +244,7 @@ extends Scheme[JobConf, RecordReader[KijiKey, KijiValue], Nothing, KijiSourceCon
    */
   override def sink(
       flow: FlowProcess[JobConf],
-      sinkCall: SinkCall[DirectKijiSinkContext, Nothing]) {
+      sinkCall: SinkCall[DirectKijiSinkContext, OutputCollector[_, _]]) {
     val DirectKijiSinkContext(eidFactory, writer) = sinkCall.getContext
     val tuple: TupleEntry = sinkCall.getOutgoingEntry
 
@@ -280,7 +280,7 @@ extends Scheme[JobConf, RecordReader[KijiKey, KijiValue], Nothing, KijiSourceCon
    */
   override def sinkCleanup(
       flow: FlowProcess[JobConf],
-      sinkCall: SinkCall[DirectKijiSinkContext, Nothing]) {
+      sinkCall: SinkCall[DirectKijiSinkContext, OutputCollector[_, _]]) {
     val writer = sinkCall.getContext.writer
     writer.flush()
     writer.close()
@@ -516,4 +516,6 @@ object KijiScheme {
 @ApiAudience.Private
 @ApiStability.Experimental
 @Inheritance.Sealed
-case class DirectKijiSinkContext(eidFactory: EntityIdFactory, writer: KijiBufferedWriter)
+private[express] final case class DirectKijiSinkContext(
+    eidFactory: EntityIdFactory,
+    writer: KijiBufferedWriter)
