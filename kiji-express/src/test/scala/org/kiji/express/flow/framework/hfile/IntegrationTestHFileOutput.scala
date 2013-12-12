@@ -23,8 +23,6 @@ import scala.collection.JavaConverters.asScalaIteratorConverter
 
 import com.twitter.scalding.Args
 import com.twitter.scalding.IterableSource
-import com.twitter.scalding.TextLine
-import com.twitter.scalding.Tsv
 import org.apache.hadoop.fs.FileSystem
 import org.apache.hadoop.fs.Path
 import org.junit.After
@@ -33,9 +31,9 @@ import org.junit.Before
 import org.junit.Test
 
 import org.kiji.express.IntegrationUtil._
-import org.kiji.express.flow.ColumnFamilyOutputSpec
 import org.kiji.express.flow.EntityId
 import org.kiji.express.flow.KijiJob
+import org.kiji.express.flow.KijiOutput
 import org.kiji.express.flow.framework.KijiScheme
 import org.kiji.express.flow.util.Resources._
 import org.kiji.express.flow.util.{AvroTypesComplete => ATC}
@@ -43,54 +41,60 @@ import org.kiji.schema.Kiji
 import org.kiji.schema.KijiDataRequest
 import org.kiji.schema.KijiTable
 import org.kiji.schema.testutil.AbstractKijiIntegrationTest
+import org.apache.hadoop.conf.Configuration
 
 class IntegrationTestHFileOutput extends AbstractKijiIntegrationTest {
+  import IntegrationTestHFileOutput._
 
   private var kiji: Kiji = null
+  private var conf: Configuration = null
 
   @Before
-  def setupTest(): Unit = { kiji = Kiji.Factory.open(getKijiURI()) }
+  def setupTest(): Unit = {
+    kiji = Kiji.Factory.open(getKijiURI())
+    conf = getConf()
+  }
 
   @After
   def cleanupTest(): Unit = kiji.release()
 
   @Test
   def testShouldBulkLoadHFiles(): Unit = {
-    val conf = getConf()
     val hfileOutput = conf.get("mapred.output.dir")
+    Assert.assertTrue(conf.get("mapred.output.dir").startsWith(conf.get("hadoop.tmp.dir")))
     FileSystem.get(conf).delete(new Path(hfileOutput), true)
 
     kiji.createTable(ATC.layout.getDesc)
 
     doAndRelease(kiji.openTable(ATC.name)) { table =>
-      runJob(classOf[HFileOutputInts],
+      runJob(conf, classOf[HFileOutputMapOnly],
         "--hdfs", "--table-uri", table.getURI.toString, "--hfile-output", hfileOutput)
+
       bulkLoadHFiles(hfileOutput + "/hfiles", conf, table)
 
-      HFileOutputInts.validate(table)
+      validateInts(table)
     }
   }
 
   @Test
   def testShouldBulkLoadWithReducer(): Unit = {
-    val conf = getConf()
     val hfileOutput = conf.get("mapred.output.dir")
     FileSystem.get(conf)delete(new Path(hfileOutput), true)
 
     kiji.createTable(ATC.layout.getDesc)
 
     doAndRelease(kiji.openTable(ATC.name)) { table =>
-      runJob(classOf[HFileOutputGroupAll],
+      runJob(conf, classOf[HFileOutputWithReducer],
         "--hdfs", "--table-uri", table.getURI.toString, "--hfile-output", hfileOutput)
+
       bulkLoadHFiles(hfileOutput + "/hfiles", conf, table)
 
-      HFileOutputGroupAll.validate(table)
+      validateCount(table)
     }
   }
 
   @Test
   def testShouldBulkLoadMultipleTables(): Unit = {
-    val conf = getConf()
     val hfileOutput = conf.get("mapred.output.dir")
     val aOutput = hfileOutput + "/a"
     val bOutput = hfileOutput + "/b"
@@ -107,94 +111,83 @@ class IntegrationTestHFileOutput extends AbstractKijiIntegrationTest {
 
     doAndRelease(kiji.openTable("A")) { a: KijiTable =>
       doAndRelease(kiji.openTable("B")) { b: KijiTable =>
-        runJob(classOf[HFileOutputMultipleTable], "--hdfs",
+        runJob(conf, classOf[HFileOutputMultipleTables],
+          "--hdfs",
           "--a", a.getURI.toString, "--b", b.getURI.toString,
           "--a-output", aOutput, "--b-output", bOutput)
 
         bulkLoadHFiles(aOutput + "/hfiles", conf, a)
         bulkLoadHFiles(bOutput + "/hfiles", conf, b)
 
-        HFileOutputMultipleTable.validateA(a)
-        HFileOutputMultipleTable.validateB(b)
+        validateInts(a)
+        validateCount(b)
       }
+    }
+  }
+
+  @Test
+  def testShouldBulkLoadHFileAndDirect(): Unit = {
+    val hfileOutput = conf.get("mapred.output.dir")
+    val aOutput = hfileOutput + "/a"
+
+    FileSystem.get(conf)delete(new Path(hfileOutput), true)
+
+    val layoutA = ATC.layout.getDesc
+    layoutA.setName("A")
+    kiji.createTable(layoutA)
+
+    val layoutB = ATC.layout.getDesc
+    layoutB.setName("B")
+    kiji.createTable(layoutB)
+
+    doAndRelease(kiji.openTable("A")) { a: KijiTable =>
+      doAndRelease(kiji.openTable("B")) { b: KijiTable =>
+        runJob(conf, classOf[HFileOutputAndDirectOutput],
+          "--hdfs",
+          "--a", a.getURI.toString, "--b", b.getURI.toString,
+          "--a-output", aOutput)
+
+        bulkLoadHFiles(aOutput + "/hfiles", conf, a)
+
+        validateInts(a)
+        validateInts(b)
+      }
+    }
+  }
+
+  @Test
+  def testShouldBulkLoadMultipleHFilesToOneTable(): Unit = {
+    val hfileOutput = conf.get("mapred.output.dir")
+    val aOutput = hfileOutput + "/a"
+    val bOutput = hfileOutput + "/b"
+
+    FileSystem.get(conf)delete(new Path(hfileOutput), true)
+
+    val layout = ATC.layout.getDesc
+    kiji.createTable(layout)
+
+    doAndRelease(kiji.openTable(layout.getName)) { table: KijiTable =>
+      runJob(conf, classOf[HFileOuputMultipleToSameTable],
+        "--hdfs",
+        "--uri", table.getURI.toString,
+        "--a-output", aOutput, "--b-output", bOutput)
+
+      bulkLoadHFiles(aOutput + "/hfiles", conf, table)
+      bulkLoadHFiles(bOutput + "/hfiles", conf, table)
+
+      validateInts(table)
+      validateCount(table)
     }
   }
 }
 
-class HFileOutputInts(args: Args) extends KijiJob(args) {
-  val uri = args("table-uri")
-  val hfilePath = args("hfile-output")
-
-  IterableSource(HFileOutputInts.inputs, (KijiScheme.EntityIdField, 'int))
-    .read
-    .write(HFileKijiOutput(uri, hfilePath, 'int -> (ATC.family +":"+ ATC.intColumn)))
-}
-object HFileOutputInts {
+object IntegrationTestHFileOutput {
+  val count: Int = 100
   val inputs: Set[(EntityId, Int)] =
-    ((1 to 100).map(int => EntityId(int.toString)) zip (1 to 100)).toSet
+    ((1 to count).map(int => EntityId(int.toString)) zip (1 to count)).toSet
+  val countEid: EntityId = EntityId("count")
 
-  def validate(table: KijiTable) = {
-    withKijiTableReader(table) { reader =>
-      val request = KijiDataRequest.create(ATC.family, ATC.intColumn)
-      doAndClose(reader.getScanner(request)) { scanner =>
-        val outputs = for (rowData <- scanner.iterator().asScala)
-                      yield (EntityId.fromJavaEntityId(rowData.getEntityId),
-                            rowData.getMostRecentValue(ATC.family, ATC.intColumn))
-        Assert.assertEquals(inputs, outputs.toSet)
-      }
-    }
-  }
-}
-
-class HFileOutputGroupAll(args: Args) extends KijiJob(args) {
-  val uri = args("table-uri")
-  val hfilePath = args("hfile-output")
-
-  IterableSource(HFileOutputGroupAll.inputs, (KijiScheme.EntityIdField, 'int))
-      .read
-      .groupAll { _.size }
-      .insert('entityId, HFileOutputGroupAll.eid)
-      .write(HFileKijiOutput(uri, hfilePath, 'size -> (ATC.family +":"+ ATC.longColumn)))
-}
-object HFileOutputGroupAll {
-  val count = 100
-  val inputs = 1 to count
-  val eid = EntityId("count")
-
-  def validate(table: KijiTable) = {
-    withKijiTableReader(table) { reader =>
-      val request = KijiDataRequest.create(ATC.family, ATC.longColumn)
-      doAndClose(reader.getScanner(request)) { scanner =>
-        val outputs = for (rowData <- scanner.iterator().asScala)
-        yield (EntityId.fromJavaEntityId(rowData.getEntityId),
-              rowData.getMostRecentValue(ATC.family, ATC.longColumn))
-        Assert.assertEquals(List(eid -> count), outputs.toList)
-      }
-    }
-  }
-}
-
-class HFileOutputMultipleTable(args: Args) extends KijiJob(args) {
-  val aUri = args("a")
-  val bUri = args("b")
-  val aOutput = args("a-output")
-  val bOutput = args("b-output")
-
-  val pipe = IterableSource(HFileOutputMultipleTable.inputs, (KijiScheme.EntityIdField, 'int)).read
-
-  pipe
-    .groupAll { _.size }
-    .insert('entityId, HFileOutputMultipleTable.eid)
-    .write(HFileKijiOutput(bUri, bOutput, 'size -> (ATC.family +":"+ ATC.longColumn)))
-
-  pipe.write(HFileKijiOutput(aUri, aOutput, 'int -> (ATC.family +":"+ ATC.intColumn)))
-}
-object HFileOutputMultipleTable {
-  val eid = EntityId("count")
-  val inputs: Set[(EntityId, Int)] =
-    ((1 to 10).map(int => EntityId(int.toString)) zip (1 to 10)).toSet
-
-  def validateA(table: KijiTable) = withKijiTableReader(table) { reader =>
+  def validateInts(table: KijiTable): Unit = withKijiTableReader(table) { reader =>
     val request = KijiDataRequest.create(ATC.family, ATC.intColumn)
     doAndClose(reader.getScanner(request)) { scanner =>
       val outputs = for (rowData <- scanner.iterator().asScala)
@@ -203,14 +196,84 @@ object HFileOutputMultipleTable {
       Assert.assertEquals(inputs, outputs.toSet)
     }
   }
-  def validateB(table: KijiTable) = withKijiTableReader(table) { reader =>
+
+  def validateCount(table: KijiTable): Unit = withKijiTableReader(table) { reader =>
     val request = KijiDataRequest.create(ATC.family, ATC.longColumn)
     doAndClose(reader.getScanner(request)) { scanner =>
       val outputs = for (rowData <- scanner.iterator().asScala)
       yield (EntityId.fromJavaEntityId(rowData.getEntityId),
             rowData.getMostRecentValue(ATC.family, ATC.longColumn))
-      Assert.assertEquals(List(eid -> inputs.size), outputs.toList)
+      Assert.assertEquals(List(countEid -> count), outputs.toList)
     }
   }
 }
 
+class HFileOutputMapOnly(args: Args) extends KijiJob(args) {
+  import IntegrationTestHFileOutput._
+  val uri = args("table-uri")
+  val hfilePath = args("hfile-output")
+
+  IterableSource(inputs, (KijiScheme.EntityIdField, 'int))
+    .read
+    .write(HFileKijiOutput(uri, hfilePath, 'int -> (ATC.family +":"+ ATC.intColumn)))
+}
+
+class HFileOutputWithReducer(args: Args) extends KijiJob(args) {
+  import IntegrationTestHFileOutput._
+  val uri = args("table-uri")
+  val hfilePath = args("hfile-output")
+
+  IterableSource(inputs, (KijiScheme.EntityIdField, 'int))
+      .read
+      .groupAll { _.size }
+      .insert('entityId, countEid)
+      .write(HFileKijiOutput(uri, hfilePath, 'size -> (ATC.family +":"+ ATC.longColumn)))
+}
+
+class HFileOutputMultipleTables(args: Args) extends KijiJob(args) {
+  import IntegrationTestHFileOutput._
+  val aUri = args("a")
+  val bUri = args("b")
+  val aOutput = args("a-output")
+  val bOutput = args("b-output")
+
+  val pipe = IterableSource(inputs, (KijiScheme.EntityIdField, 'int)).read
+
+  pipe.write(HFileKijiOutput(aUri, aOutput, 'int -> (ATC.family +":"+ ATC.intColumn)))
+  pipe
+    .groupAll { _.size }
+    .insert('entityId, countEid)
+    .write(HFileKijiOutput(bUri, bOutput, 'size -> (ATC.family +":"+ ATC.longColumn)))
+}
+
+class HFileOutputAndDirectOutput(args: Args) extends KijiJob(args) {
+  import IntegrationTestHFileOutput._
+  val aUri = args("a")
+  val bUri = args("b")
+  val aOutput = args("a-output")
+
+  val pipe = IterableSource(inputs, (KijiScheme.EntityIdField, 'int)).read
+
+  pipe.write(HFileKijiOutput(aUri, aOutput, 'int -> (ATC.family +":"+ ATC.intColumn)))
+  pipe.write(
+      KijiOutput
+        .builder
+        .withTableURI(bUri)
+        .withColumns('int -> (ATC.family +":"+ ATC.intColumn))
+        .build)
+}
+
+class HFileOuputMultipleToSameTable(args: Args) extends KijiJob(args) {
+  import IntegrationTestHFileOutput._
+  val uri = args("uri")
+  val aOutput = args("a-output")
+  val bOutput = args("b-output")
+
+  val pipe = IterableSource(inputs, (KijiScheme.EntityIdField, 'int)).read
+
+  pipe.write(HFileKijiOutput(uri, aOutput, 'int -> (ATC.family +":"+ ATC.intColumn)))
+  pipe
+      .groupAll { _.size }
+      .insert('entityId, countEid)
+      .write(HFileKijiOutput(uri, bOutput, 'size -> (ATC.family +":"+ ATC.longColumn)))
+}
